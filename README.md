@@ -14,13 +14,7 @@ About 1,700 lines of Swift and JS. No dependencies beyond the Xcode command-line
 Grab `Wink-x.y.z.dmg` from [Releases](https://github.com/myneid/wink/releases), open it, and
 drag Wink to Applications. It's a universal build for Apple Silicon and Intel and needs macOS 13+.
 
-The app is ad-hoc signed and not notarized, so macOS blocks the first launch.
-Right-click Wink.app and choose **Open**, or allow it under System Settings ▸
-Privacy & Security ▸ **Open Anyway**. You can also run:
-
-```bash
-xattr -dr com.apple.quarantine /Applications/Wink.app
-```
+It's signed with a Developer ID and notarized by Apple, so it opens normally.
 
 ## Build
 
@@ -29,6 +23,11 @@ xattr -dr com.apple.quarantine /Applications/Wink.app
 ./build.sh --install  # also copies it to /Applications
 ./make-dmg.sh         # -> build/Wink-<version>.dmg
 ```
+
+`make-dmg.sh` signs with the first "Developer ID Application" certificate in
+your keychain, notarizes through the Apple account signed in to Xcode (or a
+`notarytool` keychain profile named `wink-notary`), and staples the ticket.
+Without a certificate, it builds an ad-hoc signed DMG.
 
 ## Use
 
