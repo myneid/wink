@@ -1,3 +1,5 @@
+<p align="center"><img src="assets/wink-icon.png" width="160" alt="Wink icon: a winking eye"></p>
+
 # Wink
 
 A slim local terminal for macOS in the spirit of [Blink Shell](https://github.com/blinksh/blink):

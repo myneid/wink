@@ -6,6 +6,8 @@
 	<string>Wink</string>
 	<key>CFBundleExecutable</key>
 	<string>Wink</string>
+	<key>CFBundleIconFile</key>
+	<string>AppIcon</string>
 	<key>CFBundleIdentifier</key>
 	<string>sh.wink.Wink</string>
 	<key>CFBundleName</key>
