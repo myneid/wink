@@ -26,6 +26,12 @@ final class Settings {
     return Self.defaultFontFamily
   }
 
+  /// Keep a Blink-readable copy of ~/.ssh/config in Blink's iCloud Drive.
+  var shareWithBlink: Bool {
+    get { d.bool(forKey: "shareWithBlink") }
+    set { d.set(newValue, forKey: "shareWithBlink") }
+  }
+
   var optionIsMeta: Bool {
     get { d.bool(forKey: "optionIsMeta") }
     set { d.set(newValue, forKey: "optionIsMeta") }

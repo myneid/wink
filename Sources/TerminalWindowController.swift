@@ -26,6 +26,9 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, WKNa
 
   static var all: [TerminalWindowController] = []
 
+  /// Called after the tab closes (e.g. to pick up an edited config).
+  var onClose: (() -> Void)?
+
   /// `command` nil = user's login shell; otherwise run via `$SHELL -l -c`.
   init(command: [String]? = nil, title: String? = nil) {
     self.command = command
@@ -296,6 +299,7 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, WKNa
     titleObservation = nil
     webView.configuration.userContentController.removeScriptMessageHandler(forName: "wink")
     Self.all.removeAll { $0 === self }
+    onClose?()
   }
 
   func windowDidBecomeKey(_ notification: Notification) {

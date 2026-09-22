@@ -1,7 +1,7 @@
 import AppKit
 
 final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenuItemValidation {
-  private let hostsMenu = NSMenu(title: "Hosts")
+  private let hosts = HostsMenuController()
   private let themesMenu = NSMenu(title: "Theme")
 
   func applicationDidFinishLaunching(_ note: Notification) {
@@ -9,10 +9,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
     NSApp.mainMenu = buildMainMenu()
     newWindow(nil)
     NSApp.activate(ignoringOtherApps: true)
-    if BlinkConfig.shared.source == nil, !UserDefaults.standard.bool(forKey: "didOfferBlinkImport") {
-      UserDefaults.standard.set(true, forKey: "didOfferBlinkImport")
-      DispatchQueue.main.async { self.offerBlinkAccess() }
-    }
+    hosts.didLaunch()
   }
 
   func applicationShouldTerminateAfterLastWindowClosed(_ app: NSApplication) -> Bool { true }
@@ -29,7 +26,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
       ?? NSApp.mainWindow?.windowController as? TerminalWindowController
   }
 
-  private func open(_ term: TerminalWindowController, asTab: Bool) {
+  func open(_ term: TerminalWindowController, asTab: Bool) {
     if asTab, let host = NSApp.keyWindow ?? NSApp.mainWindow, let w = term.window {
       host.addTabbedWindow(w, ordered: .above)
     }
@@ -54,112 +51,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
     guard let tabs = NSApp.keyWindow?.tabbedWindows ?? NSApp.keyWindow.map({ [$0] }) else { return }
     let i = sender.tag == 9 ? tabs.count - 1 : sender.tag - 1
     if tabs.indices.contains(i) { tabs[i].makeKeyAndOrderFront(nil) }
-  }
-
-  // MARK: - Hosts
-
-  @objc func connectSSH(_ sender: NSMenuItem) {
-    guard let host = sender.representedObject as? HostBox else { return }
-    open(TerminalWindowController(command: BlinkConfig.shared.sshCommand(for: host.host),
-                                  title: host.host.alias), asTab: true)
-  }
-
-  @objc func connectMosh(_ sender: NSMenuItem) {
-    guard let host = sender.representedObject as? HostBox else { return }
-    open(TerminalWindowController(command: BlinkConfig.shared.moshCommand(for: host.host),
-                                  title: host.host.alias + " (mosh)"), asTab: true)
-  }
-
-  @objc func reloadBlinkConfig(_ sender: Any?) {
-    BlinkConfig.shared.reload()
-    if BlinkConfig.shared.source == nil { offerBlinkAccess() }
-  }
-
-  private func offerBlinkAccess() {
-    let alert = NSAlert()
-    alert.messageText = "Use your Blink hosts and keys?"
-    alert.informativeText = """
-      \(BlinkConfig.shared.lastError ?? "Blink's config isn't readable.")
-
-      Import: pick Blink's .blink folder once and Wink keeps a copy (re-import after changing hosts in Blink).
-
-      Full Disk Access: Wink reads Blink's config live. Add Wink in System Settings, then relaunch it.
-      """
-    alert.addButton(withTitle: "Import…")
-    alert.addButton(withTitle: "Open Full Disk Access")
-    alert.addButton(withTitle: "Not Now")
-    switch alert.runModal() {
-    case .alertFirstButtonReturn: importBlinkConfig(nil)
-    case .alertSecondButtonReturn:
-      NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles")!)
-    default: break
-    }
-  }
-
-  @objc func importBlinkConfig(_ sender: Any?) {
-    let panel = NSOpenPanel()
-    panel.message = "Select Blink's “.blink” folder, then click Import."
-    panel.prompt = "Import"
-    panel.canChooseDirectories = true
-    panel.canChooseFiles = false
-    panel.showsHiddenFiles = true
-    panel.treatsFilePackagesAsDirectories = true
-    // Opening at the parent with .blink preselected makes this one click.
-    panel.directoryURL = BlinkConfig.liveBlinkDir
-    guard panel.runModal() == .OK, let url = panel.url else { return }
-    do {
-      try BlinkConfig.shared.importSnapshot(from: url)
-      BlinkConfig.shared.reload()
-      let alert = NSAlert()
-      alert.messageText = "Imported \(BlinkConfig.shared.hosts.count) hosts from Blink"
-      alert.informativeText = "They're in the Hosts menu. SSH config: \(BlinkConfig.launchConfURL.path)"
-      alert.runModal()
-    } catch {
-      NSAlert(error: error).runModal()
-    }
-  }
-
-  @objc func revealSSHConfig(_ sender: Any?) {
-    NSWorkspace.shared.activateFileViewerSelecting([BlinkConfig.hostsConfURL])
-  }
-
-  func menuNeedsUpdate(_ menu: NSMenu) {
-    if menu === hostsMenu { rebuildHostsMenu() }
-    if menu === themesMenu { rebuildThemesMenu() }
-  }
-
-  private func rebuildHostsMenu() {
-    hostsMenu.removeAllItems()
-    let hosts = BlinkConfig.shared.hosts
-    if hosts.isEmpty {
-      let item = NSMenuItem(title: BlinkConfig.shared.source == nil ? "Blink config not readable" : "No Blink hosts",
-                            action: nil, keyEquivalent: "")
-      item.isEnabled = false
-      hostsMenu.addItem(item)
-    }
-    for h in hosts {
-      let box = HostBox(h)
-      let ssh = NSMenuItem(title: h.alias, action: #selector(connectSSH(_:)), keyEquivalent: "")
-      ssh.representedObject = box
-      ssh.toolTip = [h.user.map { "\($0)@" } ?? "", h.hostName ?? h.alias, h.port.map { ":\($0)" } ?? ""].joined()
-      hostsMenu.addItem(ssh)
-      // Hold ⌥ to connect with mosh instead.
-      let mosh = NSMenuItem(title: h.alias + " (mosh)", action: #selector(connectMosh(_:)), keyEquivalent: "")
-      mosh.representedObject = box
-      mosh.keyEquivalentModifierMask = .option
-      mosh.isAlternate = true
-      hostsMenu.addItem(mosh)
-    }
-    hostsMenu.addItem(.separator())
-    hostsMenu.addItem(withTitle: "Hold ⌥ to connect with mosh", action: nil, keyEquivalent: "").isEnabled = false
-    hostsMenu.addItem(withTitle: "Reload Blink Config", action: #selector(reloadBlinkConfig(_:)), keyEquivalent: "r")
-      .keyEquivalentModifierMask = [.command, .shift]
-    hostsMenu.addItem(withTitle: "Import Blink Config…", action: #selector(importBlinkConfig(_:)), keyEquivalent: "")
-    hostsMenu.addItem(withTitle: "Show Generated ssh_config", action: #selector(revealSSHConfig(_:)), keyEquivalent: "")
-    if let src = BlinkConfig.shared.source {
-      let from = src == BlinkConfig.snapshotDir ? "imported copy" : src.path
-      hostsMenu.addItem(withTitle: "Source: \(from)", action: nil, keyEquivalent: "").isEnabled = false
-    }
   }
 
   // MARK: - Appearance
@@ -271,10 +162,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
     main.items.last?.submenu?.items[1].allowsKeyEquivalentWhenHidden = true
 
     let hostsItem = NSMenuItem(title: "Hosts", action: nil, keyEquivalent: "")
-    hostsItem.submenu = hostsMenu
-    hostsMenu.delegate = self
+    hostsItem.submenu = hosts.menu
     main.addItem(hostsItem)
-    rebuildHostsMenu()
 
     var windowItems: [NSMenuItem] = [
       item("Minimize", #selector(NSWindow.performMiniaturize(_:)), "m"),
@@ -296,11 +185,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
 
     return main
   }
-}
-
-private final class HostBox: NSObject {
-  let host: BlinkHost
-  init(_ host: BlinkHost) { self.host = host }
 }
 
 let app = NSApplication.shared
