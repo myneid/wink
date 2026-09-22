@@ -1,4 +1,4 @@
-<p align="center"><img src="assets/wink-icon.png" width="160" alt="Wink icon: a winking eye"></p>
+<p align="center"><img src="assets/wink-icon.png" width="160" alt="Wink icon: a semicolon wink in a teal ring"></p>
 
 # Wink
 
