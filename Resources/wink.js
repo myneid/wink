@@ -13,6 +13,47 @@ hterm.VT.prototype.setDECMode = function(code, state) {
   hterm.VT.prototype.setDECMode_original.call(this, code, state);
 };
 
+// Mouse wheel reporting (tmux `set -g mouse on`, vim, htop, ...). hterm 1.75
+// sends buttons 96/97 in SGR (1006) mode: it adds the legacy X10 +32 offset,
+// which only belongs in the byte encoding, so apps read it as wheel+motion
+// and ignore it. It also sends one report per wheel event, and a Mac trackpad
+// fires dozens per swipe. Send 64/65 (+32 only in the byte encodings) and one
+// report per line of accumulated scroll distance.
+hterm.VT.prototype.onTerminalMouse_original = hterm.VT.prototype.onTerminalMouse_;
+hterm.VT.prototype.onTerminalMouse_ = function(e) {
+  if (e.type !== 'wheel' || this.mouseReport === this.MOUSE_REPORT_DISABLED) {
+    return this.onTerminalMouse_original(e);
+  }
+  e.preventDefault(); // keep hterm's own scrollback from moving
+
+  const lineHeight = this.terminal.scrollPort_.characterSize.height;
+  let px = e.deltaY;
+  if (e.deltaMode === WheelEvent.DOM_DELTA_LINE) px *= lineHeight;
+  else if (e.deltaMode === WheelEvent.DOM_DELTA_PAGE) px *= lineHeight * this.terminal.screenSize.height;
+  if (Math.sign(px) !== Math.sign(this.wheelPixels_ || 0)) this.wheelPixels_ = 0; // direction changed
+  this.wheelPixels_ = (this.wheelPixels_ || 0) + px;
+  const lines = Math.trunc(this.wheelPixels_ / lineHeight);
+  if (!lines) return;
+  this.wheelPixels_ -= lines * lineHeight;
+
+  let button = lines < 0 ? 64 : 65; // wheel up : wheel down
+  if (this.mouseReport !== this.MOUSE_REPORT_PRESS) {
+    if (e.shiftKey) button |= 4;
+    if (e.metaKey || (this.terminal.keyboard.altIsMeta && e.altKey)) button |= 8;
+    if (e.ctrlKey) button |= 16;
+  }
+
+  let report;
+  if (this.mouseCoordinates === this.MOUSE_COORDINATES_SGR) {
+    report = `\x1b[<${button};${e.terminalColumn};${e.terminalRow}M`;
+  } else {
+    const limit = this.mouseCoordinates === this.MOUSE_COORDINATES_UTF8 ? 2047 : 255;
+    const coord = (n) => String.fromCharCode(lib.f.clamp(n + 32, 32, limit));
+    report = '\x1b[M' + String.fromCharCode(button + 32) + coord(e.terminalColumn) + coord(e.terminalRow);
+  }
+  this.terminal.io.sendString(report.repeat(Math.min(Math.abs(lines), 20)));
+};
+
 // Native draws its own resize feedback (none), so hide hterm's overlay.
 hterm.Terminal.prototype.overlaySize = function() {};
 
