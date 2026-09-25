@@ -36,6 +36,7 @@ Without a certificate, it builds an ad-hoc signed DMG.
 | ⌘T / ⌘N / ⌘W | new tab / new window / close tab |
 | ⌘1…⌘9, ⌘⇧[ ⌘⇧] | switch tabs |
 | ⌘C / ⌘V, ⌘K | copy / paste, clear scrollback |
+| hold ⌘ over a URL, ⌘-click | underlines it; opens it in your browser (works in tmux with `mouse on` too) |
 | ⌘+ / ⌘- / ⌘0 | font size |
 | View ▸ Theme | Blink's bundled themes, your Blink custom themes, and `~/.config/wink/themes/*.js` |
 | View ▸ Use Option as Meta | ⌥ sends ESC-prefixed keys (for emacs, readline ⌥B/⌥F) |

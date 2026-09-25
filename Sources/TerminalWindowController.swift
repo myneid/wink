@@ -93,6 +93,12 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, WKNa
       if masterFD >= 0, let c = body["cols"] as? Int, let r = body["rows"] as? Int {
         wink_pty_resize(masterFD, UInt16(c), UInt16(r))
       }
+    case "openURL":
+      // Only schemes a click on terminal text should reach; output is untrusted.
+      if let s = body["url"] as? String, let url = URL(string: s),
+         ["http", "https", "ftp", "mailto", "file"].contains(url.scheme?.lowercased() ?? "") {
+        NSWorkspace.shared.open(url)
+      }
     case "background":
       if let css = body["color"] as? String, let c = NSColor(css: css) {
         window?.backgroundColor = c
