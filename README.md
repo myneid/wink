@@ -4,10 +4,17 @@
 
 A slim local terminal for macOS in the spirit of [Blink Shell](https://github.com/blinksh/blink):
 [hterm](https://chromium.googlesource.com/apps/libapps/+/HEAD/hterm) in a WKWebView,
-a real PTY running your login shell, and native macOS tabs. It reads your Blink
-hosts, keys and theme and turns them into a Hosts menu.
+a real PTY running your login shell, and native macOS tabs.
 
-About 2,700 lines of Swift and JS. No dependencies beyond the Xcode command-line tools.
+- **Blink hosts and keys:** a Hosts menu built from your Blink config and your
+  `~/.ssh/config`, with `ssh` or `mosh` in a new tab, plus sharing your ssh
+  config and keys back to Blink.
+- **Images:** kitty's graphics protocol, including inside tmux.
+- **Links and mouse:** ⌘-click URLs to open them, and mouse wheel and clicks
+  work in tmux, vim, htop and other mouse-aware programs.
+- **Themes:** Blink's themes and fonts.
+
+About 2,900 lines of Swift and JS. No dependencies beyond the Xcode command-line tools.
 
 ## Download
 
@@ -36,12 +43,32 @@ Without a certificate, it builds an ad-hoc signed DMG.
 | ⌘T / ⌘N / ⌘W | new tab / new window / close tab |
 | ⌘1…⌘9, ⌘⇧[ ⌘⇧] | switch tabs |
 | ⌘C / ⌘V, ⌘K | copy / paste, clear scrollback |
-| hold ⌘ over a URL, ⌘-click | underlines it; opens it in your browser (works in tmux with `mouse on` too) |
+| hold ⌘ over a URL, ⌘-click | underlines it; opens it in your browser (see [Links](#links)) |
 | ⌘+ / ⌘- / ⌘0 | font size |
 | View ▸ Theme | Blink's bundled themes, your Blink custom themes, and `~/.config/wink/themes/*.js` |
 | View ▸ Use Option as Meta | ⌥ sends ESC-prefixed keys (for emacs, readline ⌥B/⌥F) |
 | Hosts ▸ *host* | `ssh` to it in a new tab; hold ⌥ to use `mosh` (with Blink's mosh settings for Blink hosts) |
 | Hosts ▸ Edit ~/.ssh/config (⌘⇧E) | opens it in `$EDITOR` in a new tab |
+
+## Links
+
+Hold ⌘ to underline the URL under the pointer, and ⌘-click to open it in
+your default browser. Wink recognizes `http(s)://`, `ftp://`, `file://`,
+`mailto:` and bare `www.` links, including URLs that wrap onto the next line.
+Trailing punctuation isn't included (`…/wink.` opens without the period), and
+parentheses that belong to the link are kept (`wiki/Foo_(bar)`).
+
+This works in tmux with `mouse on` too: the ⌘-click opens the link and isn't
+passed to tmux. Only web, mail, ftp and local file links are opened, so text
+printed in the terminal can't launch other apps through custom URL schemes.
+
+## Mouse
+
+Programs that ask for mouse input get it: clicks, drags and the scroll wheel
+work in tmux (`set -g mouse on`), vim (`set mouse=a`), htop, less and others.
+Trackpad scrolling sends one step per line of movement, so a swipe scrolls
+smoothly instead of jumping. Hold ⌥ while dragging to select text in those
+programs instead of sending the drag to them.
 
 ## Images (kitty graphics protocol)
 
@@ -60,6 +87,18 @@ viu can draw pictures right in the terminal.
 - **Reporting sizes:** Wink reports the window and cell sizes in pixels
   (`TIOCGWINSZ`, `CSI 14/16/18 t`), so tools size their images correctly.
 - **Not supported:** animation.
+
+To try it:
+
+```bash
+brew install chafa && chafa -f kitty some.png
+```
+
+or with kitty's own tool:
+
+```bash
+brew install kitty && kitten icat some.png
+```
 
 ### Images inside tmux
 
@@ -97,8 +136,9 @@ macOS blocks other apps from reading it, so on first launch Wink offers two opti
   `defaults` and `Themes` to `~/.config/wink/blink-snapshot`. Use
   **Hosts ▸ Blink ▸ Import Blink Config…** again after you change hosts in Blink.
 - **Full Disk Access**: add Wink under System Settings ▸ Privacy & Security ▸
-  Full Disk Access to read Blink's config live. (Until the app is Developer ID
-  signed, macOS may need you to grant access again after a rebuild.)
+  Full Disk Access to read Blink's config live. Release builds are Developer ID
+  signed, so the permission carries over when you update. Builds you make
+  yourself with `./build.sh` are ad-hoc signed and may need it granted again.
 
 You can also point Wink at any copy of `.blink`:
 `defaults write sh.wink.Wink BlinkConfigPath /path/to/.blink`.
@@ -172,15 +212,16 @@ hosts are missing, open Blink's folder in the Files app once.
 
 ## Layout
 
-- `Sources/pty.c`: `forkpty` + exec, window-size ioctl
+- `Sources/main.swift`: app setup, menus and tabs
 - `Sources/TerminalWindowController.swift`: one tab = one PTY + one WKWebView, with output batching and backpressure
+- `Sources/pty.c`: `forkpty` + exec, window size in cells and pixels, shared-memory helper
+- `Sources/HostsMenu.swift`: the Hosts menu and the Blink key and config actions
 - `Sources/BlinkConfig.swift`: reads Blink's NSKeyedArchiver files and writes the ssh config
 - `Sources/LocalSSHConfig.swift`: reads `~/.ssh/config` and writes the Blink-safe copy
-- `Sources/HostsMenu.swift`: the Hosts menu and the Blink key and config actions
-- `Sources/main.swift`: menus, tabs, Hosts menu
-- `Resources/wink.js`: the hterm ↔ native bridge
-- `Resources/kitty.js`: the kitty graphics protocol (images, placements, Unicode placeholders)
 - `Sources/ImageFiles.swift`: reads image files and shared memory for the graphics protocol
+- `Sources/Settings.swift`: font, theme and option settings
+- `Resources/wink.js`: the hterm ↔ native bridge, links, mouse-wheel and size reporting
+- `Resources/kitty.js`: the kitty graphics protocol (images, placements, Unicode placeholders)
 
 ## License
 
