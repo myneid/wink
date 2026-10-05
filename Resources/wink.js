@@ -54,6 +54,41 @@ hterm.VT.prototype.onTerminalMouse_ = function(e) {
   this.terminal.io.sendString(report.repeat(Math.min(Math.abs(lines), 20)));
 };
 
+// Kitty graphics: hterm reads APC sequences (ESC _ ... ESC \) to the end and
+// drops them. Hand "G" commands to WinkGraphics (kitty.js). If it needs time
+// to decode, hold back the rest of the output until it's done (_pauseOutput).
+hterm.VT.CC1['\x9f'] = hterm.VT.ESC['_'] = function(parseState) {
+  parseState.resetArguments();
+  const parseAPC = function(parseState) {
+    if (!this.parseUntilStringTerminator_(parseState)) return; // too long, dropped
+    if (parseState.func === parseAPC) return; // the rest is in a later chunk
+    const body = parseState.args[0];
+    const graphics = this.terminal.graphics;
+    if (body[0] !== 'G' || !graphics) return;
+    const wait = graphics.command(body.slice(1));
+    if (wait) {
+      const rest = parseState.peekRemainingBuf();
+      parseState.advance(rest.length);
+      _pauseOutput(rest, wait);
+    }
+  };
+  parseState.func = parseAPC;
+};
+
+// XTWINOPS size reports (CSI 14/16/18 t), which image tools use to size
+// pictures. Pixels are device pixels, the unit kitty images are sized in.
+hterm.VT.CSI['t'] = function(parseState) {
+  const graphics = this.terminal.graphics;
+  if (!graphics) return;
+  const px = graphics.pixelSizes(), size = this.terminal.screenSize;
+  const reply = {
+    14: `\x1b[4;${px.height};${px.width}t`,
+    16: `\x1b[6;${px.cellH};${px.cellW}t`,
+    18: `\x1b[8;${size.height};${size.width}t`,
+  }[Number(parseState.args[0])];
+  if (reply) this.terminal.io.sendString(reply);
+};
+
 // Native draws its own resize feedback (none), so hide hterm's overlay.
 hterm.Terminal.prototype.overlaySize = function() {};
 
@@ -62,6 +97,9 @@ let _ready = false;
 let _prefs = null; // the terminal's own PreferenceManager, set in init()
 const _decoder = new TextDecoder('utf-8');
 const _pending = [];
+// Output held back while an image decodes, in order; see _pauseOutput.
+const _held = [];
+let _paused = false;
 
 function _post(op, data) {
   const handler = window.webkit && window.webkit.messageHandlers.wink;
@@ -74,6 +112,44 @@ function term_applySexyTheme(theme) {
   term_set('color-palette-overrides', theme.color);
   term_set('foreground-color', theme.foreground);
   term_set('background-color', theme.background);
+}
+
+/**
+ * Holds back `rest` (the unparsed tail of the current chunk) and everything
+ * after it until `wait` settles, so text after an image lands below it and
+ * replies stay in order. Never longer than 5s, so a stuck decode can't hang
+ * the terminal.
+ */
+function _pauseOutput(rest, wait) {
+  if (rest) _held.unshift(rest);
+  _paused = true;
+  const timeout = new Promise((resolve) => setTimeout(resolve, 5000));
+  Promise.race([wait, timeout]).catch(() => {}).then(() => {
+    _paused = false;
+    _writeHeld();
+  });
+}
+
+function _writeHeld() {
+  while (!_paused && _held.length) t.io.writeUTF8(_held.shift());
+  if (t.graphics && t.graphics.images.size) t.graphics.scheduleRender();
+}
+
+/** Window and cell size in device pixels, for TIOCGWINSZ. */
+function _resizeMessage(cols, rows) {
+  const px = t.graphics ? t.graphics.pixelSizes() : {width: 0, height: 0};
+  return {cols, rows, xpixel: px.width, ypixel: px.height};
+}
+
+// Image files (kitty t=f/t/s) are read by the native side.
+const _fileReads = new Map();
+let _fileReadSeq = 0;
+function _readImageFile(medium, path, offset, size) {
+  return new Promise((resolve) => {
+    const id = ++_fileReadSeq;
+    _fileReads.set(id, resolve);
+    _post('readImageFile', {id, medium, path, offset, size});
+  });
 }
 
 function _syncBackground() {
@@ -285,7 +361,14 @@ window.wink = {
       t.keyboard.characterEncoding = 'raw';
       const io = t.io.push();
       io.onVTKeystroke = io.sendString = (data) => _post('input', {data});
-      io.onTerminalResize = (cols, rows) => _post('resize', {cols, rows});
+      io.onTerminalResize = (cols, rows) => _post('resize', _resizeMessage(cols, rows));
+      // Kitty sends images in APC chunks of up to 4096 bytes; hterm's default
+      // cap of 1024 would silently drop them.
+      t.vt.maxStringSequence = 1 << 20;
+      t.graphics = new WinkGraphics(t, {
+        send: (data) => _post('input', {data}),
+        readFile: _readImageFile,
+      });
       t.installKeyboard();
       _clearLinkHover = _installLinks();
       // ⌘ belongs to macOS: keep hterm from treating it as Meta so WebKit hands
@@ -300,7 +383,7 @@ window.wink = {
       for (const chunk of _pending) t.io.writeUTF8(chunk);
       _pending.length = 0;
       _ready = true;
-      _post('ready', {cols: t.screenSize.width, rows: t.screenSize.height});
+      _post('ready', _resizeMessage(t.screenSize.width, t.screenSize.height));
       t.focus();
     };
     t.decorate(document.getElementById('terminal'));
@@ -311,15 +394,32 @@ window.wink = {
   write(b64) {
     const text = _decoder.decode(_b64ToBytes(b64), {stream: true});
     if (!text) return;
-    if (_ready) {
-      _clearLinkHover();
-      t.io.writeUTF8(text);
-    } else {
+    if (!_ready) {
       _pending.push(text);
+      return;
     }
+    _clearLinkHover();
+    if (_paused) {
+      _held.push(text);
+      return;
+    }
+    t.io.writeUTF8(text);
+    if (t.graphics.images.size) t.graphics.scheduleRender();
   },
 
-  setFontSize(size) { term_set('font-size', size); },
+  imageFileData(id, b64) {
+    const resolve = _fileReads.get(id);
+    _fileReads.delete(id);
+    if (resolve) resolve(b64 == null ? null : _b64ToBytes(b64));
+  },
+
+  setFontSize(size) {
+    term_set('font-size', size);
+    setTimeout(() => {
+      _post('resize', _resizeMessage(t.screenSize.width, t.screenSize.height));
+      if (t.graphics) t.graphics.scheduleRender();
+    }, 100);
+  },
   setOptionIsMeta(on) { term_set('alt-is-meta', !!on); },
 
   applyTheme(source) {

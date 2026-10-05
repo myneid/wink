@@ -81,17 +81,29 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, WKNa
   fileprivate func handle(_ body: [String: Any]) {
     switch body["op"] as? String {
     case "ready":
-      let cols = body["cols"] as? Int ?? 80, rows = body["rows"] as? Int ?? 24
+      let size = TermSize(body)
       if !ready {
         ready = true
-        spawn(cols: cols, rows: rows)
+        spawn(size)
       }
       if window?.isKeyWindow == true { focusTerminal() }
     case "input":
       if let s = body["data"] as? String { write(Data(s.utf8)) }
     case "resize":
-      if masterFD >= 0, let c = body["cols"] as? Int, let r = body["rows"] as? Int {
-        wink_pty_resize(masterFD, UInt16(c), UInt16(r))
+      if masterFD >= 0 {
+        let size = TermSize(body)
+        wink_pty_resize(masterFD, size.cols, size.rows, size.xpixel, size.ypixel)
+      }
+    case "readImageFile":
+      guard let id = body["id"] as? Int, let medium = body["medium"] as? String,
+            let path = body["path"] as? String else { break }
+      let offset = body["offset"] as? Int ?? 0, size = body["size"] as? Int ?? 0
+      DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+        let data = ImageFiles.read(medium: medium, path: path, offset: offset, size: size)
+        DispatchQueue.main.async {
+          // NSNull becomes null in JS: "failed to read".
+          self?.call("wink.imageFileData", id, data?.base64EncodedString() ?? NSNull())
+        }
       }
     case "openURL":
       // Only schemes a click on terminal text should reach; output is untrusted.
@@ -133,7 +145,7 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, WKNa
     return ProcessInfo.processInfo.environment["SHELL"] ?? "/bin/zsh"
   }
 
-  private func spawn(cols: Int, rows: Int) {
+  private func spawn(_ size: TermSize) {
     let shell = Self.userShell
     let shellName = (shell as NSString).lastPathComponent
     var argv: [String]
@@ -157,7 +169,7 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, WKNa
     var fd: Int32 = -1
     pid = withCStrings(argv) { cargv in
       withCStrings(envp) { cenv in
-        wink_pty_spawn(shell, cargv, cenv, home, UInt16(cols), UInt16(rows), &fd)
+        wink_pty_spawn(shell, cargv, cenv, home, size.cols, size.rows, size.xpixel, size.ypixel, &fd)
       }
     }
     guard pid > 0 else {
@@ -318,6 +330,19 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, WKNa
 }
 
 // MARK: - helpers
+
+/// Terminal size from the web side, in cells and device pixels.
+private struct TermSize {
+  var cols: UInt16, rows: UInt16, xpixel: UInt16, ypixel: UInt16
+
+  init(_ body: [String: Any]) {
+    func u16(_ key: String, _ fallback: Int) -> UInt16 {
+      UInt16(clamping: body[key] as? Int ?? fallback)
+    }
+    cols = u16("cols", 80); rows = u16("rows", 24)
+    xpixel = u16("xpixel", 0); ypixel = u16("ypixel", 0)
+  }
+}
 
 private final class WeakScriptHandler: NSObject, WKScriptMessageHandler {
   weak var target: TerminalWindowController?

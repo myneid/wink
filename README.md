@@ -7,7 +7,7 @@ A slim local terminal for macOS in the spirit of [Blink Shell](https://github.co
 a real PTY running your login shell, and native macOS tabs. It reads your Blink
 hosts, keys and theme and turns them into a Hosts menu.
 
-About 1,700 lines of Swift and JS. No dependencies beyond the Xcode command-line tools.
+About 2,700 lines of Swift and JS. No dependencies beyond the Xcode command-line tools.
 
 ## Download
 
@@ -42,6 +42,39 @@ Without a certificate, it builds an ad-hoc signed DMG.
 | View ▸ Use Option as Meta | ⌥ sends ESC-prefixed keys (for emacs, readline ⌥B/⌥F) |
 | Hosts ▸ *host* | `ssh` to it in a new tab; hold ⌥ to use `mosh` (with Blink's mosh settings for Blink hosts) |
 | Hosts ▸ Edit ~/.ssh/config (⌘⇧E) | opens it in `$EDITOR` in a new tab |
+
+## Images (kitty graphics protocol)
+
+Wink shows images sent with [kitty's graphics protocol](https://sw.kovidgoyal.net/kitty/graphics-protocol/),
+so tools like `kitten icat`, yazi, timg (`-pk`), chafa (`-f kitty`), image.nvim and
+viu can draw pictures right in the terminal.
+
+- **Supported:** PNG and raw RGB/RGBA data, with or without zlib compression,
+  sent inline (works over ssh) or by local file, temp file or shared memory.
+  You can also place, crop, scale to cells, layer images behind or above the
+  text, place images relative to each other, and delete them every way the
+  protocol defines.
+- **Behavior:** images scroll with the text and are cleared by `clear`. Images
+  on the main screen are hidden while vim or less use the alternate screen,
+  and come back when you return.
+- **Reporting sizes:** Wink reports the window and cell sizes in pixels
+  (`TIOCGWINSZ`, `CSI 14/16/18 t`), so tools size their images correctly.
+- **Not supported:** animation.
+
+### Images inside tmux
+
+tmux needs two settings in `~/.tmux.conf` for images to work inside it:
+
+```
+set -g allow-passthrough on
+set -as terminal-features ',xterm*:RGB'
+```
+
+The first lets image data through tmux. The second keeps true colors intact;
+tools that draw images in tmux use Unicode placeholder characters, and the
+image id is carried in the text color. Tools that support images in tmux
+(yazi, image.nvim, `kitten icat --unicode-placeholder`) then work, and the
+images move with the text when tmux redraws.
 
 ## Hosts
 
@@ -146,6 +179,8 @@ hosts are missing, open Blink's folder in the Files app once.
 - `Sources/HostsMenu.swift`: the Hosts menu and the Blink key and config actions
 - `Sources/main.swift`: menus, tabs, Hosts menu
 - `Resources/wink.js`: the hterm ↔ native bridge
+- `Resources/kitty.js`: the kitty graphics protocol (images, placements, Unicode placeholders)
+- `Sources/ImageFiles.swift`: reads image files and shared memory for the graphics protocol
 
 ## License
 

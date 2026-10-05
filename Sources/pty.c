@@ -2,14 +2,15 @@
 
 #include <fcntl.h>
 #include <signal.h>
+#include <sys/mman.h>
 #include <sys/ioctl.h>
 #include <unistd.h>
 #include <util.h>
 
 pid_t wink_pty_spawn(const char *path, char *const argv[], char *const envp[],
                      const char *cwd, unsigned short cols, unsigned short rows,
-                     int *master_fd) {
-  struct winsize ws = {.ws_row = rows, .ws_col = cols};
+                     unsigned short xpixel, unsigned short ypixel, int *master_fd) {
+  struct winsize ws = {.ws_row = rows, .ws_col = cols, .ws_xpixel = xpixel, .ws_ypixel = ypixel};
   pid_t pid = forkpty(master_fd, NULL, NULL, &ws);
   if (pid == 0) {
     // Child: only async-signal-safe calls from here on.
@@ -27,7 +28,12 @@ pid_t wink_pty_spawn(const char *path, char *const argv[], char *const envp[],
   return pid;
 }
 
-int wink_pty_resize(int master_fd, unsigned short cols, unsigned short rows) {
-  struct winsize ws = {.ws_row = rows, .ws_col = cols};
+int wink_pty_resize(int master_fd, unsigned short cols, unsigned short rows,
+                    unsigned short xpixel, unsigned short ypixel) {
+  struct winsize ws = {.ws_row = rows, .ws_col = cols, .ws_xpixel = xpixel, .ws_ypixel = ypixel};
   return ioctl(master_fd, TIOCSWINSZ, &ws);
+}
+
+int wink_shm_open_readonly(const char *name) {
+  return shm_open(name, O_RDONLY);
 }
