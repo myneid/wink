@@ -131,6 +131,74 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, WKNa
     }
   }
 
+  // MARK: - Fit to tmux
+
+  /// Resizes the window so the terminal is exactly as big as the tmux window
+  /// shown in this tab (tmux shrinks windows to its smallest/latest client).
+  func fitWindowToTmux() {
+    guard masterFD >= 0, let ttyName = ptsname(masterFD) else { return }
+    let tty = String(cString: ttyName)
+    let foreground = tcgetpgrp(masterFD)
+    DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+      let result = TmuxSize.query(foregroundPID: foreground, tty: tty)
+      DispatchQueue.main.async {
+        guard let self else { return }
+        switch result {
+        case .success(let size): self.resizeTerminal(to: size)
+        case .failure(let failure): self.showFitFailure(failure)
+        }
+      }
+    }
+  }
+
+  private func resizeTerminal(to size: TmuxSize.Size) {
+    guard let window else { return }
+    if window.styleMask.contains(.fullScreen) {
+      showAlert("Can't resize a full-screen window",
+                "Exit full screen, then choose Fit Window to tmux again.")
+      return
+    }
+    let js = """
+      JSON.stringify({cw: t.scrollPort_.characterSize.width, ch: t.scrollPort_.characterSize.height,
+        cols: t.screenSize.width, rows: t.screenSize.height,
+        width: t.scrollPort_.getScreenWidth(), height: t.scrollPort_.getScreenHeight()})
+      """
+    webView.evaluateJavaScript(js) { [weak self] result, _ in
+      guard let self, let window = self.window,
+            let json = (result as? String)?.data(using: .utf8),
+            let m = try? JSONSerialization.jsonObject(with: json) as? [String: Double],
+            let cw = m["cw"], let ch = m["ch"], let cols = m["cols"], let rows = m["rows"],
+            let width = m["width"], let height = m["height"], cw > 0, ch > 0 else { return }
+      // hterm uses floor(screen size / cell size): aim for the middle of the
+      // target cell so rounding can't land one short.
+      let dw = (Double(size.cols) - cols) * cw - (width - cols * cw) + cw / 2
+      let dh = (Double(size.rows) - rows) * ch - (height - rows * ch) + ch / 2
+      let content = window.contentRect(forFrameRect: window.frame)
+      let newContent = NSRect(x: content.minX, y: content.maxY - (content.height + dh), // keep the top edge
+                              width: content.width + dw, height: content.height + dh)
+      window.setFrame(window.frameRect(forContentRect: newContent), display: true, animate: true)
+    }
+  }
+
+  private func showFitFailure(_ failure: TmuxSize.Failure) {
+    switch failure {
+    case .noTmux(let program):
+      showAlert("tmux isn't running in this tab",
+                "The program in front is \(program). Fit Window to tmux works when tmux runs in this tab on this Mac. "
+                + "For tmux on another machine, run `tmux resize-window -A` there, or reattach with `tmux attach -d` to detach the other clients.")
+    case .query(let message):
+      showAlert("Couldn't get the tmux window size", message)
+    }
+  }
+
+  private func showAlert(_ title: String, _ text: String) {
+    guard let window else { return }
+    let alert = NSAlert()
+    alert.messageText = title
+    alert.informativeText = text
+    alert.beginSheetModal(for: window)
+  }
+
   func focusTerminal() {
     window?.makeFirstResponder(webView)
     call("wink.focus")

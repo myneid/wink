@@ -42,6 +42,7 @@ Without a certificate, it builds an ad-hoc signed DMG.
 |---|---|
 | ⌘T / ⌘N / ⌘W | new tab / new window / close tab |
 | ⌘1…⌘9, ⌘⇧[ ⌘⇧] | switch tabs |
+| Window ▸ Fit Window to tmux (⌥⌘T) | resizes the window to exactly fit the tmux window in this tab (see [tmux window size](#tmux-window-size)) |
 | ⌘C / ⌘V, ⌘K | copy / paste, clear scrollback |
 | hold ⌘ over a URL, ⌘-click | underlines it; opens it in your browser (see [Links](#links)) |
 | ⌘+ / ⌘- / ⌘0 | font size |
@@ -69,6 +70,19 @@ work in tmux (`set -g mouse on`), vim (`set mouse=a`), htop, less and others.
 Trackpad scrolling sends one step per line of movement, so a swipe scrolls
 smoothly instead of jumping. Hold ⌥ while dragging to select text in those
 programs instead of sending the drag to them.
+
+## tmux window size
+
+When a smaller client is attached to the same tmux session (another window,
+or Blink on an iPad), tmux shrinks the session's windows to fit it, and a
+bigger Wink window shows tmux with filler around it. **Window ▸ Fit Window
+to tmux** (⌥⌘T) asks the tmux running in the current tab how big its window
+is (plus the status line) and resizes the Wink window to fit exactly.
+
+It works when tmux runs in the tab on this Mac, including servers started
+with `-L`/`-S` or a custom `TMUX_TMPDIR`. For tmux on another machine, run
+`tmux resize-window -A` there, or reattach with `tmux attach -d` to detach
+the other clients.
 
 ## Images (kitty graphics protocol)
 
@@ -222,6 +236,7 @@ hosts are missing, open Blink's folder in the Files app once.
 - `Sources/BlinkConfig.swift`: reads Blink's NSKeyedArchiver files and writes the ssh config
 - `Sources/LocalSSHConfig.swift`: reads `~/.ssh/config` and writes the Blink-safe copy
 - `Sources/ImageFiles.swift`: reads image files and shared memory for the graphics protocol
+- `Sources/TmuxSize.swift`: asks the tmux in a tab for its window size (Fit Window to tmux)
 - `Sources/Settings.swift`: font, theme and option settings
 - `Resources/wink.js`: the hterm ↔ native bridge, links, mouse-wheel and size reporting
 - `Resources/kitty.js`: the kitty graphics protocol (images, placements, Unicode placeholders)

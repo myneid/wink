@@ -82,6 +82,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
 
   @objc func clearTerminal(_ sender: Any?) { keyTerminal?.call("wink.clear") }
 
+  @objc func fitWindowToTmux(_ sender: Any?) { keyTerminal?.fitWindowToTmux() }
+
   private func rebuildThemesMenu() {
     themesMenu.removeAllItems()
     let current = Settings.shared.themeName
@@ -172,6 +174,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
       item("Show Previous Tab", #selector(NSWindow.selectPreviousTab(_:)), "[", [.command, .shift]),
       item("Show Next Tab", #selector(NSWindow.selectNextTab(_:)), "]", [.command, .shift]),
       item("Move Tab to New Window", #selector(NSWindow.moveTabToNewWindow(_:))),
+      item("Fit Window to tmux", #selector(fitWindowToTmux(_:)), "t", [.command, .option]),
       item("Merge All Windows", #selector(NSWindow.mergeAllWindows(_:))),
       .separator(),
     ]

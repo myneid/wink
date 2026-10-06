@@ -2,6 +2,7 @@
 #define WINK_PTY_H
 
 #include <sys/types.h>
+#include <libproc.h> // proc_pidpath, for finding the tmux binary a tab runs
 
 // Forks a child attached to a new pseudo-terminal and execs `path`.
 // Returns the child pid (or -1) and stores the master side in *master_fd.
