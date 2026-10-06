@@ -88,17 +88,15 @@ viu can draw pictures right in the terminal.
   (`TIOCGWINSZ`, `CSI 14/16/18 t`), so tools size their images correctly.
 - **Not supported:** animation.
 
-To try it:
+To try it, use the `wink-icat` script in this repo (no dependencies; converts
+JPEG, HEIC, GIF and other formats with macOS's `sips`):
 
 ```bash
-brew install chafa && chafa -f kitty some.png
+tools/wink-icat some.png
+tools/wink-icat --cols 40 photo.jpg
 ```
 
-or with kitty's own tool:
-
-```bash
-brew install kitty && kitten icat some.png
-```
+or any kitty-protocol tool, such as `chafa -f kitty some.png` or `kitten icat some.png`.
 
 ### Images inside tmux
 
@@ -109,11 +107,16 @@ set -g allow-passthrough on
 set -as terminal-features ',xterm*:RGB'
 ```
 
-The first lets image data through tmux. The second keeps true colors intact;
+The first lets image data through tmux. The second keeps true colors intact:
 tools that draw images in tmux use Unicode placeholder characters, and the
-image id is carried in the text color. Tools that support images in tmux
-(yazi, image.nvim, `kitten icat --unicode-placeholder`) then work, and the
-images move with the text when tmux redraws.
+image id is carried in the text color.
+
+The program also has to support tmux. Inside tmux it must wrap the image data
+in tmux's passthrough escape and display it with placeholder characters;
+images drawn the plain way are dropped by tmux or painted over when it
+redraws. `wink-icat`, yazi, image.nvim and `kitten icat` do this. Simple
+scripts that print the escape codes directly, such as the example
+`send-png` script in kitty's protocol docs, work only outside tmux.
 
 ## Hosts
 
@@ -222,6 +225,7 @@ hosts are missing, open Blink's folder in the Files app once.
 - `Sources/Settings.swift`: font, theme and option settings
 - `Resources/wink.js`: the hterm ↔ native bridge, links, mouse-wheel and size reporting
 - `Resources/kitty.js`: the kitty graphics protocol (images, placements, Unicode placeholders)
+- `tools/wink-icat`: shows an image with the kitty protocol, in or out of tmux
 
 ## License
 

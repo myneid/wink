@@ -430,6 +430,12 @@ class WinkGraphics {
     };
     // Text sits between the two layers; its own background moves to the body
     // so images with z < 0 show through.
+    // Placeholder cells are boxed to exactly one cell (see the hterm patch at
+    // the end) and their glyph hidden: the image is drawn on top.
+    const style = doc.createElement('style');
+    style.textContent = '.wc-node.wink-placeholder { width: var(--hterm-charsize-width);' +
+        ' overflow: hidden; color: transparent !important; }';
+    doc.head.appendChild(style);
     this.below = layer(0);
     this.above = layer(3);
     doc.body.insertBefore(this.below, doc.body.firstChild);
@@ -573,7 +579,8 @@ class WinkGraphics {
       const rowRect = row.getBoundingClientRect();
       const cells = [];
       const walker = doc.createTreeWalker(row, NodeFilter.SHOW_TEXT);
-      for (let node; (node = walker.nextNode());) {
+      let colsBefore = 0; // cell columns used by earlier text nodes in this row
+      for (let node; (node = walker.nextNode()); colsBefore += lib.wc.strWidth(node.data)) {
         const s = node.data;
         for (let k = s.indexOf(PLACEHOLDER); k >= 0; k = s.indexOf(PLACEHOLDER, k + 2)) {
           const marks = [];
@@ -585,12 +592,10 @@ class WinkGraphics {
             j += cp > 0xffff ? 2 : 1;
           }
           const host = node.parentNode;
-          const range = doc.createRange();
-          range.setStart(node, k);
-          range.setEnd(node, k + 2);
-          const rect = range.getBoundingClientRect();
+          // Count columns like hterm does: fonts without a glyph for U+10EEEE
+          // can draw a fallback much wider than a cell, so layout can't be trusted.
           cells.push({
-            col: Math.round((rect.left - rowRect.left) / cw), marks,
+            col: colsBefore + lib.wc.strWidth(s.slice(0, k)), marks,
             fg: host && host.winkFg !== undefined ? host.winkFg : null,
             bg: (host && host.style && host.style.backgroundColor) || background,
           });
@@ -804,11 +809,47 @@ function colorToId(fg) {
 
 // hterm keeps only the resolved CSS color on text; placeholders need the
 // color the program sent (palette index or RGB), so remember it on the span.
+// Placeholders also get their own one-cell box, like hterm's wide characters
+// get a two-cell one: most fonts lack U+10EEEE, and the fallback glyph is
+// wider than a cell, which would push the rest of the row out of line.
 (() => {
+  const split = hterm.TextAttributes.splitWidecharString;
+  hterm.TextAttributes.splitWidecharString = function(str) {
+    const tokens = split.apply(this, arguments);
+    if (str.indexOf(PLACEHOLDER) < 0) return tokens;
+    const out = [];
+    const plain = (text) => ({
+      str: text, asciiNode: !/[^\x00-\x7f]/.test(text), wcStrWidth: lib.wc.strWidth(text),
+    });
+    for (const token of tokens) {
+      if (token.wcNode || token.str.indexOf(PLACEHOLDER) < 0) {
+        out.push(token);
+        continue;
+      }
+      let rest = token.str;
+      for (let i; (i = rest.indexOf(PLACEHOLDER)) >= 0;) {
+        if (i > 0) out.push(plain(rest.slice(0, i)));
+        let j = i + PLACEHOLDER.length; // take the zero-width marks along
+        while (j < rest.length && lib.wc.charWidth(rest.codePointAt(j)) === 0) {
+          j += rest.codePointAt(j) > 0xffff ? 2 : 1;
+        }
+        out.push({str: rest.slice(i, j), wcNode: true, asciiNode: false, wcStrWidth: 1});
+        rest = rest.slice(j);
+      }
+      if (rest) out.push(plain(rest));
+    }
+    return out;
+  };
+
   const create = hterm.TextAttributes.prototype.createContainer;
-  hterm.TextAttributes.prototype.createContainer = function() {
+  hterm.TextAttributes.prototype.createContainer = function(text) {
     const node = create.apply(this, arguments);
-    if (node.nodeType === Node.ELEMENT_NODE) node.winkFg = this.foregroundSource;
+    if (node.nodeType === Node.ELEMENT_NODE) {
+      node.winkFg = this.foregroundSource;
+      if (node.wcNode && typeof text === 'string' && text.startsWith(PLACEHOLDER)) {
+        node.classList.add('wink-placeholder');
+      }
+    }
     return node;
   };
   const matches = hterm.TextAttributes.prototype.matchesContainer;
