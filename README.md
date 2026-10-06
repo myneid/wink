@@ -12,6 +12,9 @@ a real PTY running your login shell, and native macOS tabs.
 - **Images:** kitty's graphics protocol, including inside tmux.
 - **Links and mouse:** ⌘-click URLs to open them, and mouse wheel and clicks
   work in tmux, vim, htop and other mouse-aware programs.
+- **tmux:** **Window ▸ Fit Window to tmux** sizes the window to a tmux
+  session that a smaller client (such as an iPad) is also attached to, and
+  images and the mouse work inside tmux.
 - **Themes:** Blink's themes and fonts.
 
 About 2,900 lines of Swift and JS. No dependencies beyond the Xcode command-line tools.
