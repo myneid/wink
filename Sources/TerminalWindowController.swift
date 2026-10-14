@@ -3,7 +3,7 @@ import WebKit
 
 // One terminal = one window (shown as a native tab) = one PTY + one hterm.
 final class TerminalWindowController: NSWindowController, NSWindowDelegate, WKNavigationDelegate {
-  private let webView: WKWebView
+  private let webView: TerminalWebView
   private let command: [String]?
   private let initialTitle: String
 
@@ -36,7 +36,7 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, WKNa
 
     let config = WKWebViewConfiguration()
     config.preferences.setValue(true, forKey: "developerExtrasEnabled")
-    webView = WKWebView(frame: .zero, configuration: config)
+    webView = TerminalWebView(frame: .zero, configuration: config)
     webView.setValue(false, forKey: "drawsBackground")
 
     let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 740, height: 460),
@@ -51,6 +51,7 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, WKNa
     super.init(window: window)
 
     window.delegate = self
+    webView.terminal = self
     config.userContentController.add(WeakScriptHandler(self), name: "wink")
     webView.navigationDelegate = self
     titleObservation = webView.observe(\.title, options: [.new]) { [weak self] wv, _ in
@@ -104,6 +105,11 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, WKNa
           // NSNull becomes null in JS: "failed to read".
           self?.call("wink.imageFileData", id, data?.base64EncodedString() ?? NSNull())
         }
+      }
+    case "copy":
+      if let text = body["text"] as? String, !text.isEmpty {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(text, forType: .string)
       }
     case "openURL":
       // Only schemes a click on terminal text should reach; output is untrusted.
@@ -398,6 +404,27 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, WKNa
 }
 
 // MARK: - helpers
+
+/// The web view's own Copy/Paste go through WebKit's clipboard, which doesn't
+/// see hterm's selection (it lives in an inner frame). Use the native
+/// pasteboard via hterm instead.
+final class TerminalWebView: WKWebView {
+  weak var terminal: TerminalWindowController?
+
+  @objc func copy(_ sender: Any?) { terminal?.call("wink.copySelection") }
+
+  @objc func paste(_ sender: Any?) {
+    if let text = NSPasteboard.general.string(forType: .string) { terminal?.call("wink.paste", text) }
+  }
+
+  override func validateUserInterfaceItem(_ item: NSValidatedUserInterfaceItem) -> Bool {
+    switch item.action {
+    case #selector(copy(_:)): return true
+    case #selector(paste(_:)): return NSPasteboard.general.string(forType: .string) != nil
+    default: return super.validateUserInterfaceItem(item)
+    }
+  }
+}
 
 /// Terminal size from the web side, in cells and device pixels.
 private struct TermSize {

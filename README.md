@@ -46,7 +46,7 @@ Without a certificate, it builds an ad-hoc signed DMG.
 | ⌘T / ⌘N / ⌘W | new tab / new window / close tab |
 | ⌘1…⌘9, ⌘⇧[ ⌘⇧] | switch tabs |
 | Window ▸ Fit Window to tmux (⌥⌘T) | resizes the window to exactly fit the tmux window in this tab (see [tmux window size](#tmux-window-size)) |
-| ⌘C / ⌘V, ⌘K | copy / paste, clear scrollback |
+| ⌘C / ⌘V, ⌘K | copy the selection / paste, clear scrollback (see [Copy and paste](#copy-and-paste)) |
 | hold ⌘ over a URL, ⌘-click | underlines it; opens it in your browser (see [Links](#links)) |
 | ⌘+ / ⌘- / ⌘0 | font size |
 | View ▸ Theme | Blink's bundled themes, your Blink custom themes, and `~/.config/wink/themes/*.js` |
@@ -65,6 +65,20 @@ parentheses that belong to the link are kept (`wiki/Foo_(bar)`).
 This works in tmux with `mouse on` too: the ⌘-click opens the link and isn't
 passed to tmux. Only web, mail, ftp and local file links are opened, so text
 printed in the terminal can't launch other apps through custom URL schemes.
+
+## Copy and paste
+
+- **⌘C** copies the text you've selected with the mouse. Lines that wrapped
+  are joined back into one.
+- **⌘V** pastes as typed input; programs that ask for bracketed paste get it,
+  so pasting into a shell or vim doesn't run each line as you paste.
+- **Copying from programs:** tmux, vim/neovim and others can put text on your
+  Mac's clipboard with the OSC 52 escape code, including over ssh. When tmux
+  runs with `mouse on`, dragging selects in tmux, and the text is copied to
+  your clipboard when you release the button. Programs can only write the
+  clipboard this way, never read it.
+- **Selecting in mouse-aware programs:** hold ⌥ while dragging to make a
+  regular selection instead, then press ⌘C.
 
 ## Mouse
 

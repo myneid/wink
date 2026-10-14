@@ -89,6 +89,14 @@ hterm.VT.CSI['t'] = function(parseState) {
   if (reply) this.terminal.io.sendString(reply);
 };
 
+// Clipboard: WebKit only lets a page copy during a click or key press, so
+// hterm's execCommand('copy') silently fails for OSC 52 (tmux copy mode,
+// vim/neovim over ssh). Copying goes through the native side instead. OSC 52
+// can only write the clipboard, never read it.
+hterm.Terminal.prototype.copyStringToClipboard = function(str) {
+  if (str) _post('copy', {text: str});
+};
+
 // Native draws its own resize feedback (none), so hide hterm's overlay.
 hterm.Terminal.prototype.overlaySize = function() {};
 
@@ -431,4 +439,16 @@ window.wink = {
   blur() { if (t) t.onFocusChange_(false); },
 
   clear() { if (t) { t.clearHome(); t.clearScrollback(); } },
+
+  /** Edit ▸ Copy: the terminal's selection (wrapped lines joined), or nothing. */
+  copySelection() {
+    const text = t && t.getSelectionText();
+    if (text) _post('copy', {text});
+    return !!text;
+  },
+
+  /** Edit ▸ Paste, with newlines as Return and bracketed paste when enabled. */
+  paste(text) {
+    if (t && text) t.onPaste_({text});
+  },
 };
