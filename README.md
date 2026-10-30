@@ -15,6 +15,8 @@ a real PTY running your login shell, and native macOS tabs.
 - **tmux:** **Window ▸ Fit Window to tmux** sizes the window to a tmux
   session that a smaller client (such as an iPad) is also attached to, and
   images and the mouse work inside tmux.
+- **Blink Bell:** bells you make in Blink go into Wink's tabs, so `ring` and
+  long-command hooks in Wink (locally or over ssh) ring your Blink devices.
 - **Themes:** Blink's themes and fonts.
 
 About 2,900 lines of Swift and JS. No dependencies beyond the Xcode command-line tools.
@@ -53,6 +55,7 @@ Without a certificate, it builds an ad-hoc signed DMG.
 | View ▸ Use Option as Meta | ⌥ sends ESC-prefixed keys (for emacs, readline ⌥B/⌥F) |
 | Hosts ▸ *host* | `ssh` to it in a new tab; hold ⌥ to use `mosh` (with Blink's mosh settings for Blink hosts) |
 | Hosts ▸ Edit ~/.ssh/config (⌘⇧E) | opens it in `$EDITOR` in a new tab |
+| Bells ▸ Add Bell from Clipboard… | adds a `BLINK_BELL` line copied from Blink (see [Bells](#bells-blink-bell)) |
 
 ## Links
 
@@ -148,6 +151,40 @@ images drawn the plain way are dropped by tmux or painted over when it
 redraws. `wink-icat`, yazi, image.nvim and `kitten icat` do this. Simple
 scripts that print the escape codes directly, such as the example
 `send-png` script in kitty's protocol docs, work only outside tmux.
+
+## Bells (Blink Bell)
+
+[Blink Bell](https://blink.sh) extends the terminal bell over the network:
+anything holding a bell's `BLINK_BELL` value can ring your phone (`ring
+"build finished"`, or plain `curl`). Bells are created and received in Blink,
+which holds their keys. Wink only **uses** them, the way any sender does: it
+never registers, creates bells or talks to the relay's management API.
+
+1. In Blink, create a bell (**New bell**) and copy its `BLINK_BELL=…` line.
+2. In Wink, choose **Bells ▸ Add Bell from Clipboard…**. Give it a name,
+   optionally the hosts it's for, and whether it's the default.
+3. That's it:
+   - **New tabs** get the bell in `BLINK_BELL`: a tab opened from the Hosts
+     menu gets its host's bell, any other tab the default bell.
+   - **Remote shells** set up with Blink Bell's shell integration ask the
+     terminal for a bell (`OSC 1337;BlinkBell=query;nonce=…`). Wink answers
+     with the bell for the host the tab is talking to: the `ssh`/`mosh`
+     destination running in the foreground (even one you typed yourself),
+     else the tab's Hosts-menu host, else the default. Replies quote the
+     shell's nonce, work through tmux, and are limited to 5 per minute per tab.
+     With no matching bell, Wink stays silent and the shell moves on.
+   - **Rings** go to the devices the bell is bound to in Blink.
+
+Each bell's submenu can make it the default, assign hosts, send a test ring,
+copy its line (cleared from the clipboard after 90 seconds) or remove it from
+Wink; the bell itself stays in Blink. Values are kept in your Keychain.
+Test rings go to `https://bell.blink.sh`; to use another relay:
+
+```bash
+defaults write sh.wink.Wink BellRelay https://staging.example
+```
+
+Tabs then also get `BLINK_BELL_RELAY`, so `ring` uses the same relay.
 
 ## Hosts
 
@@ -254,6 +291,8 @@ hosts are missing, open Blink's folder in the Files app once.
 - `Sources/LocalSSHConfig.swift`: reads `~/.ssh/config` and writes the Blink-safe copy
 - `Sources/ImageFiles.swift`: reads image files and shared memory for the graphics protocol
 - `Sources/TmuxSize.swift`: asks the tmux in a tab for its window size (Fit Window to tmux)
+- `Sources/Bells.swift`, `Sources/BellsMenu.swift`: Blink Bell values, which tab gets which, and the Bells menu
+- `Sources/Processes.swift`: reads the arguments of processes in a tab (tmux, ssh)
 - `Sources/Settings.swift`: font, theme and option settings
 - `Resources/wink.js`: the hterm ↔ native bridge, links, mouse-wheel and size reporting
 - `Resources/kitty.js`: the kitty graphics protocol (images, placements, Unicode placeholders)

@@ -2,6 +2,7 @@ import AppKit
 
 final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenuItemValidation {
   private let hosts = HostsMenuController()
+  private let bellsMenu = BellsMenuController()
   private let themesMenu = NSMenu(title: "Theme")
 
   func applicationDidFinishLaunching(_ note: Notification) {
@@ -166,6 +167,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
     let hostsItem = NSMenuItem(title: "Hosts", action: nil, keyEquivalent: "")
     hostsItem.submenu = hosts.menu
     main.addItem(hostsItem)
+
+    let bellsItem = NSMenuItem(title: "Bells", action: nil, keyEquivalent: "")
+    bellsItem.submenu = bellsMenu.menu
+    main.addItem(bellsItem)
 
     var windowItems: [NSMenuItem] = [
       item("Minimize", #selector(NSWindow.performMiniaturize(_:)), "m"),

@@ -5,6 +5,9 @@ import WebKit
 final class TerminalWindowController: NSWindowController, NSWindowDelegate, WKNavigationDelegate {
   private let webView: TerminalWebView
   private let command: [String]?
+  /// The Hosts-menu host this tab was opened for, if any (picks its bell).
+  private let host: String?
+  private var bellReplies: [Date] = [] // for the 5-per-minute limit
   private let initialTitle: String
 
   private var pid: pid_t = 0
@@ -30,8 +33,9 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, WKNa
   var onClose: (() -> Void)?
 
   /// `command` nil = user's login shell; otherwise run via `$SHELL -l -c`.
-  init(command: [String]? = nil, title: String? = nil) {
+  init(command: [String]? = nil, title: String? = nil, host: String? = nil) {
     self.command = command
+    self.host = host
     initialTitle = title ?? (Self.userShell as NSString).lastPathComponent
 
     let config = WKWebViewConfiguration()
@@ -106,6 +110,8 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, WKNa
           self?.call("wink.imageFileData", id, data?.base64EncodedString() ?? NSNull())
         }
       }
+    case "bellQuery":
+      if let nonce = body["nonce"] as? String { answerBellQuery(nonce: nonce) }
     case "copy":
       if let text = body["text"] as? String, !text.isEmpty {
         NSPasteboard.general.clearContents()
@@ -135,6 +141,25 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, WKNa
       if let err { NSLog("wink js error: \(err)") }
       completion?()
     }
+  }
+
+  // MARK: - Blink Bell
+
+  /// Answers the shell integration's in-band query with this tab's bell:
+  /// the one for the ssh/mosh host in the foreground, else this tab's host,
+  /// else the default. Quiet when there's none: the shell gives up in ~50ms.
+  private func answerBellQuery(nonce: String) {
+    // 16 lowercase hex, quoted back so multiplexers' broadcast replies can't mix up.
+    guard masterFD >= 0, nonce.count == 16, nonce.allSatisfy({ "0123456789abcdef".contains($0) }) else { return }
+    let now = Date()
+    bellReplies = bellReplies.filter { now.timeIntervalSince($0) < 60 }
+    guard bellReplies.count < 5 else { return }
+
+    let remote = BellHostDetection.remoteHost(foregroundPID: tcgetpgrp(masterFD))
+    let bells = BellStore.shared
+    guard let bell = bells.bell(forHost: remote ?? host), let value = bells.value(of: bell) else { return }
+    bellReplies.append(now)
+    write(Data("\u{1b}]1337;BlinkBell=reply;nonce=\(nonce);value=\(value)\u{1b}\\".utf8))
   }
 
   // MARK: - Fit to tmux
@@ -234,6 +259,12 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, WKNa
     env["TERM"] = "xterm-256color"
     env["COLORTERM"] = "truecolor"
     env["TERM_PROGRAM"] = "Wink"
+    // Blink Bell: this tab's bell, for `ring`/curl in local shells.
+    let bells = BellStore.shared
+    if let bell = bells.bell(forHost: host), let value = bells.value(of: bell) {
+      env["BLINK_BELL"] = value
+      if bells.isCustomRelay { env["BLINK_BELL_RELAY"] = bells.relayURL }
+    }
     env["SHELL"] = shell
     if env["LANG"] == nil { env["LANG"] = "en_US.UTF-8" }
     env.removeValue(forKey: "__CFBundleIdentifier")

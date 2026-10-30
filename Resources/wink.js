@@ -97,6 +97,15 @@ hterm.Terminal.prototype.copyStringToClipboard = function(str) {
   if (str) _post('copy', {text: str});
 };
 
+// Blink Bell: a shell integration asks "is there a bell for me?" with
+// OSC 1337;BlinkBell=query;nonce=<16 hex> ST. The native side picks the bell
+// for the host this tab is talking to and replies, quoting the nonce. Other
+// OSC 1337 commands (iTerm2's) are ignored, as before.
+hterm.VT.OSC['1337'] = function(parseState) {
+  const m = /^BlinkBell=query;nonce=([0-9a-f]{16})$/.exec(parseState.args[0]);
+  if (m) _post('bellQuery', {nonce: m[1]});
+};
+
 // Native draws its own resize feedback (none), so hide hterm's overlay.
 hterm.Terminal.prototype.overlaySize = function() {};
 

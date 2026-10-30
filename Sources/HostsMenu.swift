@@ -136,13 +136,14 @@ final class HostsMenuController: NSObject, NSMenuDelegate {
 
   @objc private func connectSSH(_ sender: NSMenuItem) {
     guard let h = (sender.representedObject as? HostBox)?.host else { return }
-    app.open(TerminalWindowController(command: BlinkConfig.shared.sshCommand(for: h), title: h.alias), asTab: true)
+    app.open(TerminalWindowController(command: BlinkConfig.shared.sshCommand(for: h), title: h.alias, host: h.sshAlias),
+             asTab: true)
   }
 
   @objc private func connectMosh(_ sender: NSMenuItem) {
     guard let h = (sender.representedObject as? HostBox)?.host else { return }
-    app.open(TerminalWindowController(command: BlinkConfig.shared.moshCommand(for: h), title: h.alias + " (mosh)"),
-             asTab: true)
+    app.open(TerminalWindowController(command: BlinkConfig.shared.moshCommand(for: h), title: h.alias + " (mosh)",
+                                      host: h.sshAlias), asTab: true)
   }
 
   @objc private func editLocalConfig(_ sender: Any?) {
