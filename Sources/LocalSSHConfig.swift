@@ -112,7 +112,9 @@ enum LocalSSHConfig {
       """
     var keys: [String: URL] = [:]
     var inMatch = false
-    for line in flattenedLines(url) {
+    // Hosts added or edited in Wink go too, after your own (ssh keeps the first value).
+    let wink = url == configURL ? HostCatalog.winkHostsConfig().components(separatedBy: "\n") : []
+    for line in flattenedLines(url) + wink {
       let (key, value) = split(line)
       if key == "match" { inMatch = true; continue }
       if key == "host" { inMatch = false }

@@ -13,6 +13,10 @@ pid_t wink_pty_spawn(const char *path, char *const argv[], char *const envp[],
 int wink_pty_resize(int master_fd, unsigned short cols, unsigned short rows,
                     unsigned short xpixel, unsigned short ypixel);
 
+// Window size of a terminal, in cells and pixels (the pixels may be 0).
+int wink_get_winsize(int fd, unsigned short *cols, unsigned short *rows,
+                     unsigned short *xpixel, unsigned short *ypixel);
+
 // shm_open is variadic, which Swift can't call directly.
 int wink_shm_open_readonly(const char *name);
 

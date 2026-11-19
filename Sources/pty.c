@@ -37,3 +37,11 @@ int wink_pty_resize(int master_fd, unsigned short cols, unsigned short rows,
 int wink_shm_open_readonly(const char *name) {
   return shm_open(name, O_RDONLY);
 }
+
+int wink_get_winsize(int fd, unsigned short *cols, unsigned short *rows,
+                     unsigned short *xpixel, unsigned short *ypixel) {
+  struct winsize ws = {0};
+  if (ioctl(fd, TIOCGWINSZ, &ws) != 0) return -1;
+  *cols = ws.ws_col; *rows = ws.ws_row; *xpixel = ws.ws_xpixel; *ypixel = ws.ws_ypixel;
+  return 0;
+}

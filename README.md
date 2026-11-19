@@ -8,7 +8,11 @@ a real PTY running your login shell, and native macOS tabs.
 
 - **Blink hosts and keys:** a Hosts menu built from your Blink config and your
   `~/.ssh/config`, with `ssh` or `mosh` in a new tab, plus sharing your ssh
-  config and keys back to Blink.
+  config and keys back to Blink. One switch also makes Blink's hosts work in
+  kitty, Ghostty, iTerm and other terminals.
+- **Host picker:** ⇧⌘K opens a full-screen host picker drawn with kitty
+  graphics. It shows a live status dot for each host, lets you edit hosts with
+  all of Blink's settings including tunnels, and runs in kitty and Ghostty too.
 - **Images:** kitty's graphics protocol, including inside tmux.
 - **Links and mouse:** ⌘-click URLs to open them, and mouse wheel and clicks
   work in tmux, vim, htop and other mouse-aware programs.
@@ -18,8 +22,10 @@ a real PTY running your login shell, and native macOS tabs.
 - **Blink Bell:** bells you make in Blink go into Wink's tabs, so `ring` and
   long-command hooks in Wink (locally or over ssh) ring your Blink devices.
 - **Themes:** Blink's themes and fonts.
+- **Updates:** checks for a new version once a day and installs it when you
+  quit, or right away if you choose.
 
-About 2,900 lines of Swift and JS. No dependencies beyond the Xcode command-line tools.
+About 5,600 lines of Swift, C and JS. No dependencies beyond the Xcode command-line tools.
 
 ## Download
 
@@ -27,6 +33,23 @@ Grab `Wink-x.y.z.dmg` from [Releases](https://github.com/myneid/wink/releases), 
 drag Wink to Applications. It's a universal build for Apple Silicon and Intel and needs macOS 13+.
 
 It's signed with a Developer ID and notarized by Apple, so it opens normally.
+
+### Updates
+
+From 0.5.0, Wink updates itself from these releases. Choose **Wink ▸ Check for
+Updates…**, or leave **Check for Updates Automatically** on (the default) and
+Wink checks once a day.
+
+When there's a new version you can pick **Install When I Quit** or **Install
+and Restart**. Wink never restarts on its own, because restarting ends the
+shells in its tabs (tmux sessions keep running). With **Install Updates
+Automatically** on, Wink downloads updates without asking and installs them the
+next time you quit. **Wink ▸ Restart to Update** installs one right away.
+
+Before installing, Wink checks that the new app is signed by the same Developer
+ID team, notarized by Apple, and the version the release says it is. If Wink
+can't write to its own folder, or is running from the disk image, it offers the
+download instead.
 
 ## Build
 
@@ -190,12 +213,84 @@ Tabs then also get `BLINK_BELL_RELAY`, so `ring` uses the same relay.
 
 The Hosts menu lists two groups:
 
-- **Blink**: hosts from your Blink config (see below).
+- **Blink and Wink**: hosts from your Blink config (see below), with hosts you
+  added or edited in the host picker marked "Wink".
 - **~/.ssh/config**: every concrete `Host` in your own config, including files it `Include`s.
 
-To add or change hosts locally, edit `~/.ssh/config` (**Hosts ▸ Edit ~/.ssh/config**).
+To add or change hosts, use the [host picker](#host-picker) (⇧⌘K), or edit
+`~/.ssh/config` (**Hosts ▸ Edit ~/.ssh/config**).
 Your local settings override Blink's: to change a Blink host, add a `Host` block
 with the same name to `~/.ssh/config`.
+
+## Host picker
+
+**Hosts ▸ Connect to Host…** (⇧⌘K) opens a full-screen host picker in a new
+tab. It shows every host as a card: Blink's hosts, hosts you added in Wink, and
+the hosts in your `~/.ssh/config`. Each card shows a dot for whether the host
+answers on its ssh port right now: green if it does, red if not, blue if it's
+reached through a jump host or proxy (not checked).
+
+| Key | Action |
+| --- | --- |
+| type | filter by name, address or user |
+| arrows, mouse | move; click a selected card to connect |
+| ↵ | connect: the tab becomes the ssh (or mosh) session |
+| ⇥ | switch between ssh and mosh |
+| ^E | edit the host |
+| ^N | add a host |
+| ^X | delete a Wink host, undo your edits to a Blink host, or hide a Blink host |
+| ^A | show hidden hosts (^X on one shows it again) |
+| ^R | reload hosts and check them again |
+| esc | clear the filter, then close |
+
+The editor has everything Blink's host settings have:
+- **Host:** name, HostName, user, port and key.
+- **Route:** ProxyJump, ProxyCommand and agent forwarding.
+- **Tunnels:** `L 8080 localhost:80`, `R 9000 localhost:3000`, `D 1080` for SOCKS.
+- **Mosh:** server path, UDP ports, prediction, remote IP and startup command.
+- **More ssh config:** any other ssh config lines.
+
+Use ↑↓ to move between fields, type to edit, ←→ to change a choice, ^S to save
+and esc to cancel.
+
+**Where edits go.** Wink never writes to Blink's own host database, which is an
+archive Blink syncs through iCloud. Hosts you add or edit are kept in
+`~/.config/wink/hosts.json`:
+- A Wink entry with the same name as a Blink host replaces that host.
+- Hidden Blink hosts are listed there too, and are left out.
+- Renaming a Blink host hides the old name.
+
+Wink writes all of this into `~/.config/wink/blink_hosts.conf`. Your edits
+reach:
+- **Wink's connections**, which read that file.
+- **Other terminals**, if you turn on
+  [Use Blink Hosts in Other Terminals](#blinks-hosts-in-other-terminals).
+- **Blink**, if you turn on
+  [Share ~/.ssh/config with Blink](#sharing-your-sshconfig-with-blink-wink--blink).
+  Wink hosts go into the copy Blink reads, after your own `~/.ssh/config`.
+
+Hosts from `~/.ssh/config` are shown but not edited here: use
+**Hosts ▸ Edit ~/.ssh/config**.
+
+**In other terminals.** The picker is part of the Wink app, and it runs
+anywhere: `/Applications/Wink.app/Contents/MacOS/Wink --hosts`.
+- In kitty and Ghostty it draws the cards with the kitty graphics protocol.
+- In other terminals, and inside tmux, it draws them with box characters.
+- In kitty, bind it to a key in `kitty.conf`:
+
+  ```
+  map cmd+shift+k launch --type=tab --tab-title Hosts /Applications/Wink.app/Contents/MacOS/Wink --hosts
+  ```
+- Anywhere else, use a shell alias:
+
+  ```
+  alias hosts='/Applications/Wink.app/Contents/MacOS/Wink --hosts'
+  ```
+
+The picker reads Blink's hosts from the copy Wink saves when it reads them,
+`~/.config/wink/blink_hosts.json`. Open Wink once after changing hosts in
+Blink. With output piped, `Wink --hosts` just prints the host names, for fzf
+and scripts.
 
 ## Blink config (Blink → Wink)
 
@@ -223,13 +318,32 @@ From that, Wink generates:
   includes your `~/.ssh/config` first, then Blink's hosts.
 - `~/.config/wink/keys/<name>.pub`: your Blink public keys.
 
-To make plain `ssh <blink-host>` work in any terminal, add this to the **end** of
-`~/.ssh/config`:
+### Blink's hosts in other terminals
+
+Turn on **Hosts ▸ Blink ▸ Use Blink Hosts in Other Terminals** and plain
+`ssh <blink-host>` works in kitty, Ghostty, iTerm, Terminal or any other
+terminal, along with everything else that reads `~/.ssh/config`: `mosh`,
+`kitten ssh`, `scp`, `rsync`, VS Code Remote and shell tab completion.
+
+Wink adds a marked block to the **end** of `~/.ssh/config`:
 
 ```
+# >>> Wink: Blink hosts. …
 Match all
   Include ~/.config/wink/blink_hosts.conf
+# <<< Wink
 ```
+
+- ssh uses the first value it finds, so your own `Host` blocks still win over Blink's.
+- If `~/.ssh/config` is a symlink (dotfiles), Wink edits the file it points to
+  and keeps its permissions.
+- Before changing the file for the first time, Wink saves a copy next to it as
+  `config.before-wink`.
+- Turning the item off removes the block.
+- Wink refreshes `blink_hosts.conf` when it starts and on **Reload Blink Config**,
+  so other terminals see Blink changes after that.
+- Keys work as they do in Wink (below): a saved key file, or a matching key in
+  your ssh-agent.
 
 ### Blink's keys
 
@@ -294,6 +408,7 @@ hosts are missing, open Blink's folder in the Files app once.
 - `Sources/Bells.swift`, `Sources/BellsMenu.swift`: Blink Bell values, which tab gets which, and the Bells menu
 - `Sources/Processes.swift`: reads the arguments of processes in a tab (tmux, ssh)
 - `Sources/Settings.swift`: font, theme and option settings
+- `Sources/Updater.swift`: daily update check, download, signature checks and the install-on-quit swap
 - `Resources/wink.js`: the hterm ↔ native bridge, links, mouse-wheel and size reporting
 - `Resources/kitty.js`: the kitty graphics protocol (images, placements, Unicode placeholders)
 - `tools/wink-icat`: shows an image with the kitty protocol, in or out of tmux

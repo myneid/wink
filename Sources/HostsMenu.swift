@@ -30,21 +30,24 @@ final class HostsMenuController: NSObject, NSMenuDelegate {
 
   private func rebuild() {
     menu.removeAllItems()
-    let blinkHosts = BlinkConfig.shared.hosts
-    let blinkAliases = Set(blinkHosts.map(\.sshAlias))
-    let localHosts = LocalSSHConfig.hostAliases().filter { !blinkAliases.contains($0) }
+    let catalog = HostCatalog.load().hosts.filter { !$0.hidden }
+    let hosts = catalog.filter { $0.source != .sshConfig }
+    let localHosts = catalog.filter { $0.source == .sshConfig }
 
-    header(BlinkConfig.shared.source == nil ? "Blink (not readable)" : "Blink")
-    if blinkHosts.isEmpty && BlinkConfig.shared.source != nil { disabled("No hosts") }
-    for h in blinkHosts {
+    item("Connect to Host…", #selector(showPicker(_:)), key: "k", mods: [.command, .shift])
+    menu.addItem(.separator())
+    header(BlinkConfig.shared.source == nil ? "Blink and Wink (Blink not readable)" : "Blink and Wink")
+    if hosts.isEmpty { disabled("No hosts") }
+    for c in hosts {
+      let h = c.host
       let tip = [h.user.map { "\($0)@" } ?? "", h.hostName ?? h.alias, h.port.map { ":\($0)" } ?? ""].joined()
-      addHost(h, title: h.alias, tip: tip)
+      addHost(h, title: c.source == .blink ? h.alias : h.alias + "  ·  Wink", tip: tip)
     }
 
     menu.addItem(.separator())
     header("~/.ssh/config")
     if localHosts.isEmpty { disabled("No hosts") }
-    for alias in localHosts { addHost(BlinkHost(alias: alias), title: alias, tip: nil) }
+    for c in localHosts { addHost(c.host, title: c.host.alias, tip: nil) }
 
     menu.addItem(.separator())
     disabled("Hold ⌥ to connect with mosh")
@@ -73,6 +76,9 @@ final class HostsMenuController: NSObject, NSMenuDelegate {
       let from = src == BlinkConfig.snapshotDir ? "imported copy" : "Blink's folder"
       m.addItem(withTitle: "Source: \(from)", action: nil, keyEquivalent: "").isEnabled = false
     }
+    let others = add("Use Blink Hosts in Other Terminals", #selector(toggleOtherTerminals(_:)))
+    others.state = OtherTerminals.isEnabled ? .on : .off
+    others.toolTip = "Adds Blink's hosts to ~/.ssh/config, so plain ssh in kitty, Ghostty, iTerm or Terminal knows them"
 
     m.addItem(.separator())
     m.addItem(withTitle: "To Blink", action: nil, keyEquivalent: "").isEnabled = false
@@ -133,6 +139,11 @@ final class HostsMenuController: NSObject, NSMenuDelegate {
   }
 
   // MARK: - Connecting and editing
+
+  @objc func showPicker(_ sender: Any?) {
+    guard let exe = Bundle.main.executablePath else { return }
+    app.open(TerminalWindowController(command: [exe, "--hosts"], title: "Hosts"), asTab: true)
+  }
 
   @objc private func connectSSH(_ sender: NSMenuItem) {
     guard let h = (sender.representedObject as? HostBox)?.host else { return }
@@ -328,6 +339,30 @@ final class HostsMenuController: NSObject, NSMenuDelegate {
   }
 
   static let setupCommand = LocalSSHConfig.blinkSetupCommands.joined(separator: "\n")
+
+  @objc private func toggleOtherTerminals(_ sender: Any?) {
+    if OtherTerminals.isEnabled {
+      do { try OtherTerminals.disable() } catch { NSAlert(error: error).runModal() }
+      return
+    }
+    let alert = NSAlert()
+    alert.messageText = "Use Blink's hosts in every terminal?"
+    alert.informativeText = """
+      Wink adds these lines to the end of ~/.ssh/config:
+
+      Match all
+      \(OtherTerminals.includeLine)
+
+      Then `ssh \(HostCatalog.load(includeSSHConfig: false).hosts.first?.host.sshAlias ?? "host")` (and mosh, kitten ssh, scp, rsync) works \
+      in kitty, Ghostty, iTerm or Terminal. Your own Host blocks still win. Wink refreshes the file \
+      when it starts and on Reload Blink Config; keys need ssh-agent or a key file, as in Wink. \
+      Turn this off to remove the lines.
+      """
+    alert.addButton(withTitle: "Add")
+    alert.addButton(withTitle: "Cancel")
+    guard alert.runModal() == .alertFirstButtonReturn else { return }
+    do { try OtherTerminals.enable() } catch { NSAlert(error: error).runModal() }
+  }
 
   @objc private func copySetupCommand(_ sender: Any?) {
     NSPasteboard.general.clearContents()

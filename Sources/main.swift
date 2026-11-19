@@ -11,6 +11,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
     newWindow(nil)
     NSApp.activate(ignoringOtherApps: true)
     hosts.didLaunch()
+    Updater.shared.start()
+  }
+
+  func applicationWillTerminate(_ note: Notification) {
+    Updater.shared.willTerminate()
   }
 
   func applicationShouldTerminateAfterLastWindowClosed(_ app: NSApplication) -> Bool { true }
@@ -123,6 +128,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
 
     _ = submenu("Wink", [
       item("About Wink", #selector(NSApplication.orderFrontStandardAboutPanel(_:))),
+      Updater.shared.checkItem,
+      Updater.shared.restartItem,
+      .separator(),
+      Updater.shared.autoCheckItem,
+      Updater.shared.autoInstallItem,
       .separator(),
       item("Hide Wink", #selector(NSApplication.hide(_:)), "h"),
       item("Hide Others", #selector(NSApplication.hideOtherApplications(_:)), "h", [.command, .option]),
@@ -194,6 +204,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
     return main
   }
 }
+
+// `Wink --hosts` is the host picker, run inside a terminal (see HostPicker.swift).
+if CommandLine.arguments.dropFirst().first == "--hosts" { HostPicker.run() }
 
 let app = NSApplication.shared
 let delegate = AppDelegate()
