@@ -22,6 +22,11 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, WKNa
   private var inFlight = 0
   private var readPaused = false
   private static let maxInFlight = 4
+  /// Most output handed to the web view at once; hterm parses it in one go.
+  private static let maxChunk = 128 * 1024
+  /// Stop reading the pty past this, so a fast program (`cat hugefile`,
+  /// `yes`) waits for Wink instead of Wink queueing everything it prints.
+  private static let maxBuffered = 512 * 1024
 
   private var titleObservation: NSKeyValueObservation?
   private var ready = false
@@ -298,11 +303,10 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, WKNa
 
   private func readAvailable(_ fd: Int32) {
     var buf = [UInt8](repeating: 0, count: 65536)
-    while true {
+    while outBuffer.count < Self.maxBuffered {
       let n = read(fd, &buf, buf.count)
       if n > 0 {
         outBuffer.append(buf, count: n)
-        if n < buf.count { break }
       } else {
         if n == 0 || (errno != EAGAIN && errno != EINTR) { readSource?.cancel() }
         break
@@ -311,23 +315,33 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, WKNa
     scheduleFlush()
   }
 
+  /// On ioQueue: sends the next chunk unless the web view is behind, and
+  /// stops reading the pty while it is.
   private func scheduleFlush() {
-    guard !flushScheduled, !outBuffer.isEmpty else { return }
-    if inFlight >= Self.maxInFlight {
-      // Let the web view catch up before reading more (e.g. `cat hugefile`).
+    if inFlight >= Self.maxInFlight || outBuffer.count >= Self.maxBuffered {
       if !readPaused { readPaused = true; readSource?.suspend() }
-      return
     }
+    guard !flushScheduled, !outBuffer.isEmpty, inFlight < Self.maxInFlight else { return }
     flushScheduled = true
     DispatchQueue.main.async { [weak self] in self?.flush() }
+  }
+
+  /// On ioQueue: reads again once the web view has caught up.
+  private func resumeReadingIfRoom() {
+    if readPaused, inFlight < Self.maxInFlight, outBuffer.count < Self.maxBuffered / 2 {
+      readPaused = false
+      readSource?.resume()
+    }
   }
 
   private func flush() {
     let chunk: Data = ioQueue.sync {
       flushScheduled = false
-      let d = outBuffer
-      outBuffer.removeAll(keepingCapacity: true)
+      let d = Data(outBuffer.prefix(Self.maxChunk))
+      outBuffer.removeFirst(d.count)
       if !d.isEmpty { inFlight += 1 }
+      resumeReadingIfRoom()
+      scheduleFlush()
       return d
     }
     guard !chunk.isEmpty else { return }
@@ -335,10 +349,7 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate, WKNa
       guard let self else { return }
       self.ioQueue.async {
         self.inFlight -= 1
-        if self.readPaused, self.inFlight < Self.maxInFlight {
-          self.readPaused = false
-          self.readSource?.resume()
-        }
+        self.resumeReadingIfRoom()
         self.scheduleFlush()
       }
     }

@@ -109,6 +109,47 @@ hterm.VT.OSC['1337'] = function(parseState) {
 // Native draws its own resize feedback (none), so hide hterm's overlay.
 hterm.Terminal.prototype.overlaySize = function() {};
 
+// This hterm keeps every line that scrolls off the top, so very long output
+// (a big `cat`, a chatty build) grows memory without end until the tab
+// freezes. Keep the last SCROLLBACK_LIMIT lines, dropping old ones in batches
+// so the renumbering below stays cheap.
+const SCROLLBACK_LIMIT = 50000;
+const SCROLLBACK_BATCH = 5000;
+const _appendRows = hterm.Terminal.prototype.appendRows_;
+hterm.Terminal.prototype.appendRows_ = function(count) {
+  _appendRows.call(this, count);
+  const extra = this.scrollbackRows_.length - SCROLLBACK_LIMIT;
+  if (extra >= SCROLLBACK_BATCH) this.trimScrollback_(extra);
+};
+
+hterm.Terminal.prototype.trimScrollback_ = function(count) {
+  const sp = this.scrollPort_;
+  const atEnd = sp.isScrolledEnd;
+  const top = sp.getTopRowIndex();
+  const sb = this.scrollbackRows_;
+  sb.splice(0, count);
+  // Row nodes carry their absolute index; hterm and the scroll port rely on it.
+  for (let i = 0; i < sb.length; i++) sb[i].rowIndex = i;
+  const rows = this.screen_.rowsArray;
+  for (let i = 0; i < rows.length; i++) rows[i].rowIndex = sb.length + i;
+  // The other screen gets renumbered when it's switched back to.
+  // Drop drawn rows and cached nodes, which still have the old indexes.
+  let node = sp.topFold_.nextSibling;
+  while (node && node !== sp.bottomFold_) {
+    const next = node.nextSibling;
+    node.remove();
+    node = next;
+  }
+  sp.resetCache();
+  if (atEnd) {
+    this.scheduleScrollDown_();
+  } else {
+    // Keep what you're reading in place, unless it was among the dropped lines.
+    sp.scrollRowToTop(Math.max(0, top - count));
+  }
+  sp.scheduleRedraw();
+};
+
 let t = null;
 let _ready = false;
 let _prefs = null; // the terminal's own PreferenceManager, set in init()
