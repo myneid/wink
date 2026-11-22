@@ -1,13 +1,13 @@
 'use strict';
 const $ = id => document.getElementById(id), api = blink.spotify;
-let player = null, localDevice = null, sdkLoading = null;
+let player = null, localDevice = null, sdkLoading = null, selectedDevice = null;
 let playback = null, view = 'search', offset = 0, artwork = '', busy = false, connected = false;
 const request = (verb, path, query = {}, body) => api.request(verb, path, query, body);
 const report = error => { $('status').textContent = error?.message || String(error); };
 async function run(action) { try { $('status').textContent = ''; await action(); } catch (error) { report(error); } }
 function session(value) { connected = value; $('setup').hidden = value; $('app').hidden = !value; $('disconnect').hidden = !value; $('connection').textContent = value ? 'Connected' : 'Disconnected'; }
 const time = ms => `${Math.floor((ms || 0) / 60000)}:${String(Math.floor((ms || 0) / 1000) % 60).padStart(2, '0')}`;
-function deviceQuery() { return $('devices').value ? {device_id: $('devices').value} : {}; }
+function deviceQuery() { const id = $('devices').value; if (!id) throw new Error('Wink player is connecting. If audio is blocked, click Play in Wink.'); return {device_id: id}; }
 async function command(path, verb = 'PUT', query = {}, body) { await request(verb, '/me/player' + path, {...deviceQuery(), ...query}, body); await refresh(); }
 async function refresh() {
   if (!connected || busy) return;
@@ -30,9 +30,20 @@ async function refresh() {
   } finally { busy = false; }
 }
 async function devices() {
-  const data = await request('GET', '/me/player/devices'); $('devices').replaceChildren();
-  const empty = document.createElement('option'); empty.value = ''; empty.textContent = 'Active device'; $('devices').append(empty);
-  for (const device of data?.devices || []) { const option = document.createElement('option'); option.value = device.id || ''; option.textContent = `${device.name}${device.is_active ? ' • active' : ''}`; option.selected = device.is_active; $('devices').append(option); }
+  const data = await request('GET', '/me/player/devices');
+  const available = data?.devices || [];
+  $('devices').replaceChildren();
+  const target = selectedDevice || localDevice;
+  const wink = document.createElement('option');
+  wink.value = localDevice || ''; wink.textContent = localDevice ? 'Wink (in-app)' : 'Wink (connecting…)';
+  $('devices').append(wink);
+  for (const device of available) {
+    if (device.id === localDevice) continue;
+    const option = document.createElement('option'); option.value = device.id || '';
+    option.textContent = `${device.name}${device.is_active ? ' • active' : ''}`; $('devices').append(option);
+  }
+  $('devices').value = target || '';
+  if ($('devices').selectedIndex < 0) { selectedDevice = null; $('devices').value = localDevice || ''; }
 }
 function button(text, action) { const b = document.createElement('button'); b.textContent = text; b.onclick = () => run(action); return b; }
 function row(item, kind) {
@@ -65,8 +76,8 @@ async function load(append = false) {
   if (!items.length && !append) $('results').textContent = 'No items available.';
   $('more').hidden = !data?.next;
 }
-$('login').onclick = () => run(async () => { $('login').disabled = true; try { await api.login($('client').value.trim()); session(true); await devices(); await refresh(); } finally { $('login').disabled = false; } });
-$('disconnect').onclick = () => run(async () => { if (player) player.disconnect(); player = null; localDevice = null; $('stream-status').textContent = 'Disconnected'; await api.logout(); session(false); $('art').removeAttribute('src'); $('results').replaceChildren(); artwork = ''; playback = null; });
+$('login').onclick = () => run(async () => { $('login').disabled = true; try { await api.login($('client').value.trim()); session(true); await devices(); await startLocalPlayer(); await refresh(); } finally { $('login').disabled = false; } });
+$('disconnect').onclick = () => run(async () => { if (player) player.disconnect(); player = null; localDevice = null; selectedDevice = null; $('stream-status').textContent = 'Disconnected'; await api.logout(); session(false); $('art').removeAttribute('src'); $('results').replaceChildren(); artwork = ''; playback = null; });
 $('toggle').onclick = () => run(() => command(playback?.is_playing ? '/pause' : '/play'));
 $('next').onclick = () => run(() => command('/next', 'POST'));
 $('previous').onclick = () => run(() => command('/previous', 'POST'));
@@ -74,7 +85,7 @@ $('shuffle').onclick = () => run(() => command('/shuffle', 'PUT', {state: String
 $('repeat').onclick = () => run(() => command('/repeat', 'PUT', {state: ({off:'context',context:'track',track:'off'})[playback?.repeat_state || 'off']}));
 $('volume').onchange = () => run(() => command('/volume', 'PUT', {volume_percent: $('volume').value}));
 $('seek').onchange = () => run(() => command('/seek', 'PUT', {position_ms: $('seek').value}));
-$('devices').onchange = () => run(async () => { if ($('devices').value) { await request('PUT', '/me/player', {}, {device_ids:[$('devices').value], play:false}); await refresh(); } });
+$('devices').onchange = () => run(async () => { if ($('devices').value) { selectedDevice = $('devices').value; await request('PUT', '/me/player', {}, {device_ids:[$('devices').value], play:false}); await refresh(); } });
 $('refresh').onclick = () => run(async () => { await devices(); await refresh(); });
 $('searchform').onsubmit = event => { event.preventDefault(); view = 'search'; offset = 0; $('heading').textContent = 'Search results'; run(() => load()); };
 document.querySelectorAll('[data-view]').forEach(b => { b.onclick = () => { view = b.dataset.view; offset = 0; $('heading').textContent = b.textContent; run(() => load()); }; });
@@ -86,7 +97,7 @@ document.addEventListener('keydown', event => {
   if (event.key === '/') { event.preventDefault(); $('query').focus(); }
 });
 setInterval(() => { if (connected && !document.hidden) run(refresh); }, 10000);
-run(async () => { const info = await blink.host.info(); if (!info.capabilities.includes('spotify')) throw new Error('This host does not provide the Spotify capability. Use the bundled Wink plugin.'); session((await api.status()).connected); if (connected) { await devices(); await refresh(); } });
+run(async () => { const info = await blink.host.info(); if (!info.capabilities.includes('spotify')) throw new Error('This host does not provide the Spotify capability. Use the bundled Wink plugin.'); session((await api.status()).connected); if (connected) { await devices(); await startLocalPlayer(); await refresh(); } });
 
 function loadStreamingSDK() {
   if (window.Spotify) return Promise.resolve();
@@ -100,16 +111,16 @@ function loadStreamingSDK() {
   });
   return sdkLoading;
 }
-async function useLocalPlayer() {
+async function useLocalPlayer(play = false) {
   if (!localDevice) return;
-  await request('PUT', '/me/player', {}, {device_ids:[localDevice], play:true});
+  await request('PUT', '/me/player', {}, {device_ids:[localDevice], play});
   await devices();
-  $('devices').value = localDevice;
+  selectedDevice = localDevice; $('devices').value = localDevice;
   await refresh();
 }
-$('stream').onclick = () => run(async () => {
-  // Must run directly in the click handler to preserve browser audio activation.
-  if (player) { player.activateElement(); if (localDevice) await useLocalPlayer(); return; }
+async function startLocalPlayer() {
+  // Connect on login or tab open; audio activation stays in the click handler.
+  if (player) return;
   $('stream-status').textContent = 'Connecting built-in player…';
   await loadStreamingSDK();
   player = new Spotify.Player({name:'Wink', volume:0.5, enableMediaSession:true,
@@ -126,13 +137,21 @@ $('stream').onclick = () => run(async () => {
   }
   player.addListener('ready', ({device_id}) => {
     if (player !== thisPlayer) return;
-    localDevice = device_id; $('stream-status').textContent = 'Wink player ready'; run(useLocalPlayer);
+    localDevice = device_id; $('stream-status').textContent = 'Wink player ready'; if (!selectedDevice) run(() => useLocalPlayer(false)); else run(devices);
   });
   player.addListener('not_ready', () => { localDevice = null; $('stream-status').textContent = 'Wink player offline — reopen this tab to reconnect'; });
   player.addListener('autoplay_failed', () => { $('stream-status').textContent = 'Click Play in Wink again to enable audio'; });
   player.addListener('player_state_changed', () => { if (connected) run(refresh); });
-  player.activateElement();
   const ok = await player.connect();
   if (!ok && player === thisPlayer) { player.disconnect(); player = null; throw new Error('Spotify could not connect the built-in player. Reconnect Spotify and check Premium eligibility.'); }
-});
+}
+$('stream').onclick = () => {
+  // Activate synchronously in the user gesture when the SDK is already ready.
+  if (player) player.activateElement();
+  run(async () => {
+    await startLocalPlayer();
+    if (player) player.activateElement();
+    if (localDevice) await useLocalPlayer(true);
+  });
+};
 window.addEventListener('pagehide', () => { if (player) player.disconnect(); });

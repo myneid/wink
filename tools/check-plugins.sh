@@ -1,6 +1,7 @@
 #!/bin/bash
 set -euo pipefail
 cd "$(dirname "$0")/.."
+node Tests/SpotifyDefaultsChecks.cjs
 CHECK_DIR=$(mktemp -d /tmp/wink-plugin-checks.XXXXXX)
 swiftc -D WINK_TESTING Sources/PluginPackage.swift Tests/PluginPackageChecks.swift -o "$CHECK_DIR/packages"
 "$CHECK_DIR/packages"
