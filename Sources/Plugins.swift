@@ -119,6 +119,7 @@ final class PluginWindowController: NSWindowController, NSWindowDelegate, WKNavi
     self.package = package
     let config = WKWebViewConfiguration()
     config.websiteDataStore = .nonPersistent()
+    config.mediaTypesRequiringUserActionForPlayback = []
     config.setURLSchemeHandler(PluginAssets(package: package), forURLScheme: "blink-plugin")
     content = config.userContentController
     content.addUserScript(WKUserScript(source: Self.sdk, injectionTime: .atDocumentStart, forMainFrameOnly: true))
@@ -154,6 +155,12 @@ final class PluginWindowController: NSWindowController, NSWindowDelegate, WKNavi
     if spotifyAllowed, action.navigationType == .linkActivated, let url = url,
        url.scheme == "https", url.host == "open.spotify.com", url.user == nil, url.password == nil {
       NSWorkspace.shared.open(url)
+    }
+    // Spotify's SDK runs its player in this exact HTTPS iframe. Never grant it the native bridge.
+    if spotifyAllowed, action.targetFrame?.isMainFrame == false,
+       let url, url.scheme == "https", url.host == "sdk.scdn.co", url.port == nil,
+       url.user == nil, url.password == nil {
+      decisionHandler(.allow); return
     }
     decisionHandler(url?.scheme == "blink-plugin" && url?.host == package.manifest.id && action.targetFrame?.isMainFrame == true ? .allow : .cancel)
   }
@@ -205,7 +212,7 @@ final class PluginWindowController: NSWindowController, NSWindowDelegate, WKNavi
       apiVersion: 1,
       host: Object.freeze({info: () => call('host.info')}),
       spotify: Object.freeze({status: () => call('spotify.status'), login: clientID => call('spotify.login', {clientID}),
-        logout: () => call('spotify.logout'), request: (verb, path, query = {}, body) => call('spotify.request', {verb, path, query, ...(body === undefined ? {} : {body})}),
+        logout: () => call('spotify.logout'), streamingToken: () => call('spotify.streamingToken'), request: (verb, path, query = {}, body) => call('spotify.request', {verb, path, query, ...(body === undefined ? {} : {body})}),
         artwork: url => call('spotify.artwork', {url})}),
       storage: Object.freeze({get: key => call('storage.get', {key}), set: (key, value) => call('storage.set', {key, value})})
     }), writable: false, configurable: false});
@@ -229,7 +236,11 @@ private final class PluginAssets: NSObject, WKURLSchemeHandler {
       let data = try Data(contentsOf: file)
       let types = ["html": "text/html", "js": "text/javascript", "css": "text/css", "json": "application/json",
                    "png": "image/png", "jpg": "image/jpeg", "svg": "image/svg+xml", "woff2": "font/woff2"]
-      let csp = "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self'; connect-src 'none'; media-src 'none'; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'"
+      var csp = "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self'; connect-src 'none'; media-src 'none'; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'"
+      let bundled = Bundle.main.resourceURL?.appendingPathComponent("Plugins/org.blink.spotify").resolvingSymlinksInPath().standardizedFileURL
+      if package.manifest.id == "org.blink.spotify", package.manifest.permissions.contains("spotify"), package.root == bundled {
+        csp = "default-src 'none'; script-src 'self' https://sdk.scdn.co; style-src 'self'; img-src 'self' data:; font-src 'self'; connect-src 'none'; media-src blob:; frame-src https://sdk.scdn.co; object-src 'none'; base-uri 'none'; form-action 'none'"
+      }
       let response = HTTPURLResponse(url: url, statusCode: 200, httpVersion: "HTTP/1.1", headerFields: [
         "Content-Type": types[file.pathExtension] ?? "application/octet-stream",
         "Content-Security-Policy": csp, "X-Content-Type-Options": "nosniff"

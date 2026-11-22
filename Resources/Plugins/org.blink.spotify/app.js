@@ -1,5 +1,6 @@
 'use strict';
 const $ = id => document.getElementById(id), api = blink.spotify;
+let player = null, localDevice = null, sdkLoading = null;
 let playback = null, view = 'search', offset = 0, artwork = '', busy = false, connected = false;
 const request = (verb, path, query = {}, body) => api.request(verb, path, query, body);
 const report = error => { $('status').textContent = error?.message || String(error); };
@@ -15,7 +16,7 @@ async function refresh() {
     const state = await request('GET', '/me/player'); playback = state;
     const track = state?.item;
     $('title').textContent = track?.name || 'No active playback';
-    $('artist').textContent = track ? `${(track.artists || []).map(a => a.name).join(', ')} — ${track.album?.name || ''}` : 'Open Spotify on a device, then select it below.';
+    $('artist').textContent = track ? `${(track.artists || []).map(a => a.name).join(', ')} — ${track.album?.name || ''}` : 'Choose Play in Wink, then select a song.';
     $('tracklink').hidden = !track?.external_urls?.spotify;
     if (track?.external_urls?.spotify) $('tracklink').href = track.external_urls.spotify;
     $('toggle').textContent = state?.is_playing ? 'Pause' : 'Play';
@@ -65,7 +66,7 @@ async function load(append = false) {
   $('more').hidden = !data?.next;
 }
 $('login').onclick = () => run(async () => { $('login').disabled = true; try { await api.login($('client').value.trim()); session(true); await devices(); await refresh(); } finally { $('login').disabled = false; } });
-$('disconnect').onclick = () => run(async () => { await api.logout(); session(false); $('art').removeAttribute('src'); $('results').replaceChildren(); artwork = ''; playback = null; });
+$('disconnect').onclick = () => run(async () => { if (player) player.disconnect(); player = null; localDevice = null; $('stream-status').textContent = 'Disconnected'; await api.logout(); session(false); $('art').removeAttribute('src'); $('results').replaceChildren(); artwork = ''; playback = null; });
 $('toggle').onclick = () => run(() => command(playback?.is_playing ? '/pause' : '/play'));
 $('next').onclick = () => run(() => command('/next', 'POST'));
 $('previous').onclick = () => run(() => command('/previous', 'POST'));
@@ -86,3 +87,52 @@ document.addEventListener('keydown', event => {
 });
 setInterval(() => { if (connected && !document.hidden) run(refresh); }, 10000);
 run(async () => { const info = await blink.host.info(); if (!info.capabilities.includes('spotify')) throw new Error('This host does not provide the Spotify capability. Use the bundled Wink plugin.'); session((await api.status()).connected); if (connected) { await devices(); await refresh(); } });
+
+function loadStreamingSDK() {
+  if (window.Spotify) return Promise.resolve();
+  if (sdkLoading) return sdkLoading;
+  sdkLoading = new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error('Spotify streaming SDK timed out. Check your connection and try reopening the tab.')), 20000);
+    window.onSpotifyWebPlaybackSDKReady = () => { clearTimeout(timer); resolve(); };
+    const script = document.createElement('script'); script.src = 'https://sdk.scdn.co/spotify-player.js';
+    script.onerror = () => { clearTimeout(timer); reject(new Error('Cannot load Spotify streaming SDK.')); };
+    document.head.append(script);
+  });
+  return sdkLoading;
+}
+async function useLocalPlayer() {
+  if (!localDevice) return;
+  await request('PUT', '/me/player', {}, {device_ids:[localDevice], play:true});
+  await devices();
+  $('devices').value = localDevice;
+  await refresh();
+}
+$('stream').onclick = () => run(async () => {
+  // Must run directly in the click handler to preserve browser audio activation.
+  if (player) { player.activateElement(); if (localDevice) await useLocalPlayer(); return; }
+  $('stream-status').textContent = 'Connecting built-in player…';
+  await loadStreamingSDK();
+  player = new Spotify.Player({name:'Wink', volume:0.5, enableMediaSession:true,
+    getOAuthToken: callback => api.streamingToken().then(callback).catch(error => {
+      $('stream-status').textContent = 'Reconnect Spotify to authorize streaming'; report(error);
+    })});
+  const thisPlayer = player;
+  for (const event of ['initialization_error','authentication_error','account_error','playback_error']) {
+    player.addListener(event, error => {
+      $('stream-status').textContent = event === 'authentication_error' ? 'Disconnect and reconnect Spotify to grant streaming access' : `In-app playback: ${error.message}`;
+      report(error);
+      thisPlayer.disconnect(); if (player === thisPlayer) { player = null; localDevice = null; }
+    });
+  }
+  player.addListener('ready', ({device_id}) => {
+    if (player !== thisPlayer) return;
+    localDevice = device_id; $('stream-status').textContent = 'Wink player ready'; run(useLocalPlayer);
+  });
+  player.addListener('not_ready', () => { localDevice = null; $('stream-status').textContent = 'Wink player offline — reopen this tab to reconnect'; });
+  player.addListener('autoplay_failed', () => { $('stream-status').textContent = 'Click Play in Wink again to enable audio'; });
+  player.addListener('player_state_changed', () => { if (connected) run(refresh); });
+  player.activateElement();
+  const ok = await player.connect();
+  if (!ok && player === thisPlayer) { player.disconnect(); player = null; throw new Error('Spotify could not connect the built-in player. Reconnect Spotify and check Premium eligibility.'); }
+});
+window.addEventListener('pagehide', () => { if (player) player.disconnect(); });

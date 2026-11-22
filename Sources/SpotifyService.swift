@@ -3,7 +3,7 @@ import CryptoKit
 import Network
 import Security
 
-/// Tokens never cross the plugin bridge. Only the bundled Spotify example receives this service.
+/// Refresh tokens stay native. Only the bundled Spotify player can request short-lived SDK access tokens.
 final class SpotifyService {
   static let shared = SpotifyService()
   static let redirect = "http://127.0.0.1:43821/callback"
@@ -14,10 +14,15 @@ final class SpotifyService {
     kSecAttrService as String: "org.wink.spotify.oauth", kSecAttrAccount as String: "spotify"]
 
   init() {
+    #if WINK_TESTING
+    // Test executables never read a user’s real Spotify credentials.
+    return
+    #else
     var query = key; query[kSecReturnData as String] = true
     var result: CFTypeRef?
     if SecItemCopyMatching(query as CFDictionary, &result) == errSecSuccess,
        let data = result as? Data, let value = try? JSONSerialization.jsonObject(with: data) as? [String: Any] { credentials = value }
+    #endif
   }
   private func save() throws {
     let data = try JSONSerialization.data(withJSONObject: credentials)
@@ -48,12 +53,14 @@ final class SpotifyService {
       var url = URLComponents(string: "https://accounts.spotify.com/authorize")!
       url.queryItems = ["client_id": client, "response_type": "code", "redirect_uri": Self.redirect,
         "state": state, "code_challenge_method": "S256", "code_challenge": challenge,
-        "scope": "user-read-playback-state user-modify-playback-state user-read-currently-playing user-library-read playlist-read-private playlist-read-collaborative"].map { URLQueryItem(name: $0.key, value: $0.value) }
+        "scope": "streaming user-read-email user-read-private user-read-playback-state user-modify-playback-state user-read-currently-playing user-library-read playlist-read-private playlist-read-collaborative"].map { URLQueryItem(name: $0.key, value: $0.value) }
       let callback = SpotifyCallback(state: state); pending = callback
       defer { pending = nil }
       let code = try await callback.authorize(url.url!)
       var token = try await exchange(["grant_type": "authorization_code", "client_id": client, "code": code, "code_verifier": verifier, "redirect_uri": Self.redirect])
       token["client_id"] = client; credentials = token; try save(); return true
+    case "spotify.streamingToken":
+      return try await accessToken()
     case "spotify.request":
       guard let path = args["path"] as? String, let verb = args["verb"] as? String,
             Self.allowed(path: path, verb: verb) else { throw failure("Unsupported Spotify operation") }

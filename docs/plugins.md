@@ -135,12 +135,19 @@ swiftc -typecheck -swift-version 5 -import-objc-header Sources/pty.h Sources/*.s
 
 ## Bundled Spotify example (experimental)
 
-**Apps → Spotify** opens a keyboard-driven Spotify Connect companion. This is a
+**Apps → Spotify** opens a keyboard-driven Spotify player. This is a
 web plugin with directly rendered artwork, not a PTY or Kitty-graphics backend.
 It provides OAuth login, track search, liked songs, playlist browsing, queue
 browsing/addition, device transfer, play/pause, skipping, seek, volume,
-shuffle and repeat. Audio plays on an existing Spotify device. Playlist editing,
-library mutation, podcasts and in-WebView streaming are not implemented.
+shuffle and repeat. **Play in Wink** connects Spotify’s Web Playback SDK and transfers
+playback to Wink; Spotify Premium is required. Existing accounts must disconnect
+and reconnect once to grant the new `streaming`, email and profile scopes.
+Playlist editing, library mutation and podcasts are not implemented.
+
+Streaming is experimental: a real WKWebView probe confirms secure custom-origin
+FairPlay support and SDK loading. Account authorization, DRM license acquisition
+and audible playback still require a live Premium-account test; SDK loading
+alone is not proof of successful audio.
 
 The bundled plugin includes Wink’s public Spotify client ID; users click
 **Connect with Spotify** without registering their own app. Its registered redirect
@@ -151,10 +158,13 @@ and Premium requirements depend on Spotify's current access policy.
 The host opens browser OAuth authorization-code flow with S256 PKCE and random
 state. A loopback-only listener runs for up to three minutes on port 43821;
 closing the plugin cancels login. Credentials and refresh tokens live in macOS
-Keychain. Plugin JavaScript cannot read them. Disconnect removes local tokens;
+Keychain. Refresh tokens never enter JavaScript. The privileged bundled player
+can request a short-lived access token for the Spotify streaming SDK. Disconnect removes local tokens;
 it does not revoke consent on Spotify's website. Only explicitly allowlisted
 API routes are exposed. Artwork is fetched from Spotify's artwork host and
-returned as data, keeping the plugin's default no-network CSP intact.
+returned as data. Only this bundled package can load scripts and the player iframe
+from `https://sdk.scdn.co`; all other plugins retain their offline CSP. The SDK’s
+cross-origin iframe never receives access to the native message bridge.
 
 `spotify` is a reserved permission. The host grants it only to the actual
 bundled `org.blink.spotify` package path and ID, not to downloaded packages
@@ -167,6 +177,7 @@ Portable JS contract (capability-detect `spotify` via `blink.host.info()`):
 - `blink.spotify.status()` → `{connected, redirectURI}` (stored credential
   presence, not proof that Spotify currently accepts those credentials).
 - `blink.spotify.login(clientID)` → true; browser PKCE login.
+- `blink.spotify.streamingToken()` → short-lived access token for the bundled SDK.
 - `blink.spotify.logout()` → true; clear credentials.
 - `blink.spotify.request(verb, path, query, body?)` → API JSON or null.
   Paths are relative to `/v1`, exact-allowlisted, and never arbitrary URLs.

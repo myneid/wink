@@ -1,1 +1,1 @@
-{"manifestVersion":1,"id":"org.blink.spotify","name":"Spotify","version":"0.1.0","entry":"index.html","permissions":["spotify"]}
+{"manifestVersion":1,"id":"org.blink.spotify","name":"Spotify","version":"0.2.0","entry":"index.html","permissions":["spotify"]}

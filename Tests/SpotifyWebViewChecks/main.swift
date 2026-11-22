@@ -39,6 +39,24 @@ func check() {
     """, arguments: [:], in: nil, in: .page) { result in
     if case .success(let value) = result, (value as? Bool) == true {
       print("PASS: bundled Spotify menu, real WebView UI, capability, status and request allowlist (no network/login)")
+      if CommandLine.arguments.contains("--streaming-probe") {
+        web.callAsyncJavaScript("""
+          await loadStreamingSDK();
+          return await new Promise((resolve, reject) => {
+            const timer = setTimeout(() => reject(new Error('SDK iframe handshake timed out')), 15000);
+            const probe = new Spotify.Player({name:'Wink test', getOAuthToken: () => {
+              clearTimeout(timer); probe.disconnect(); resolve('SDK iframe handshake succeeded; no token supplied');
+            }});
+            probe.addListener('initialization_error', e => { clearTimeout(timer); reject(new Error(e.message)); });
+            probe.connect();
+          });
+          """, arguments: [:], in: nil, in: .page) { result in
+            print("Streaming probe: \(result)")
+            if case .success = result { controller.close(); host.close(); exit(0) }
+            exit(1)
+          }
+        return
+      }
       controller.close()
       precondition(host.isVisible, "Closing a plugin must preserve its host tab")
       host.close(); exit(0)

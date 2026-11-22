@@ -59,3 +59,15 @@ User selected the bundled OAuth route. Implementation now lives in
 See `docs/plugins.md` for current setup, capability boundary and limitations.
 The earlier "no implementation" paragraph above describes the planning stage.
 Wink’s registered public client ID is now bundled with the plugin; the loopback redirect is registered. Real-account end-to-end login/playback verification remains outstanding.
+
+
+## In-app streaming prototype (2026-11-22)
+
+Implemented explicit Play in Wink using Spotify Web Playback SDK, with streaming
+OAuth scopes and Keychain-refreshed short-lived tokens. WKWebView custom origins
+report secure context and FairPlay EME support (Widevine unavailable, as expected
+for WebKit). SDK loading and iframe handshake are separately probed without
+supplying credentials. Live Premium-account audio validation is still required.
+The Spotify SDK frame is the sole remote frame allowed for the bundled plugin;
+third-party packages retain their offline policy. No separate Spotify app is
+required by this playback route.
