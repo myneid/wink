@@ -81,7 +81,7 @@ final class PluginInstaller {
   }
 
   func prepare(_ source: GitHubPluginSource, staging: URL) async throws -> PreparedPlugin {
-    func api(_ suffix: String) -> URL { URL(string: "https://api.github.com/repos/\(source.owner)/\(source.repository)/\(suffix)")! }
+    func api(_ suffix: String) -> URL { URL(string: "https://api.github.com/repos/\(source.owner)/\(source.repository)" + (suffix.isEmpty ? "" : "/" + suffix))! }
     struct Repo: Decodable { let default_branch: String }
     struct Commit: Decodable { let sha: String; let commit: Body; struct Body: Decodable { let tree: Tree }; struct Tree: Decodable { let sha: String } }
     struct GitTree: Decodable {

@@ -31,7 +31,7 @@ private final class FixtureProtocol: URLProtocol {
     let api = "https://api.github.com/repos/example/plugin/"
     let raw = "https://raw.githubusercontent.com/example/plugin/\(sha)/app/"
     FixtureProtocol.responses = [
-      api: Data("{\"default_branch\":\"main\"}".utf8),
+      String(api.dropLast()): Data("{\"default_branch\":\"main\"}".utf8),
       api + "commits/main": Data("{\"sha\":\"\(sha)\",\"commit\":{\"tree\":{\"sha\":\"\(sha)\"}}}".utf8),
       raw + "manifest.json": manifest, raw + "index.html": html
     ]
