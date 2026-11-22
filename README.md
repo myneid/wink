@@ -19,6 +19,8 @@ a real PTY running your login shell, and native macOS tabs.
 - **tmux:** **Window ▸ Fit Window to tmux** sizes the window to a tmux
   session that a smaller client (such as an iPad) is also attached to, and
   images and the mouse work inside tmux.
+- **Web apps (experimental):** isolated HTML/CSS/JavaScript plugin windows from
+  the Apps menu, with a portable Blink/Wink API. See [plugin development](docs/plugins.md).
 - **Blink Bell:** bells you make in Blink go into Wink's tabs, so `ring` and
   long-command hooks in Wink (locally or over ssh) ring your Blink devices.
 - **Themes:** Blink's themes and fonts.

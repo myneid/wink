@@ -2,6 +2,7 @@ import AppKit
 
 final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenuItemValidation {
   private let hosts = HostsMenuController()
+  private let plugins = PluginsMenuController()
   private let bellsMenu = BellsMenuController()
   private let themesMenu = NSMenu(title: "Theme")
 
@@ -173,6 +174,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
     // Hide the duplicate "=" item; it just makes ⌘= work without shift.
     main.items.last?.submenu?.items[1].isHidden = true
     main.items.last?.submenu?.items[1].allowsKeyEquivalentWhenHidden = true
+
+    let appsItem = NSMenuItem(title: "Apps", action: nil, keyEquivalent: "")
+    appsItem.submenu = plugins.menu
+    main.addItem(appsItem)
 
     let hostsItem = NSMenuItem(title: "Hosts", action: nil, keyEquivalent: "")
     hostsItem.submenu = hosts.menu
