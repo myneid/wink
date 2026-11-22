@@ -3,6 +3,7 @@ import WebKit
 
 final class PluginsMenuController: NSObject, NSMenuDelegate {
   let menu = NSMenu(title: "Apps")
+  private var installing = false
   private var windows: [PluginWindowController] = []
   private var pluginsFolder: URL {
     FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support/Wink/Plugins", isDirectory: true)
@@ -32,8 +33,49 @@ final class PluginsMenuController: NSObject, NSMenuDelegate {
       item.representedObject = package
     }
     menu.addItem(.separator())
+    let install = menu.addItem(withTitle: installing ? "Downloading App…" : "Install from GitHub…", action: installing ? nil : #selector(installFromGitHub), keyEquivalent: "")
+    install.target = self
     let folder = menu.addItem(withTitle: "Open Apps Folder…", action: #selector(openFolder), keyEquivalent: "")
     folder.target = self
+  }
+
+  @objc private func installFromGitHub() {
+    guard !installing else { return }
+    let prompt = NSAlert()
+    prompt.messageText = "Install App from GitHub"
+    prompt.informativeText = "Paste a public repository or plugin-folder link. Wink will contact GitHub and download a pinned snapshot for review. No build scripts are run."
+    let input = NSTextField(frame: NSRect(x: 0, y: 0, width: 420, height: 24))
+    input.placeholderString = "https://github.com/owner/plugin"
+    prompt.accessoryView = input
+    prompt.addButton(withTitle: "Download for Review")
+    prompt.addButton(withTitle: "Cancel")
+    prompt.window.initialFirstResponder = input
+    guard prompt.runModal() == .alertFirstButtonReturn else { return }
+    do {
+      let source = try GitHubPluginSource(input.stringValue)
+      installing = true
+      Task { @MainActor in
+        defer { installing = false }
+        do {
+          let staging = pluginsFolder.deletingLastPathComponent().appendingPathComponent("PluginDownloads")
+          let prepared = try await PluginInstaller().prepare(source, staging: staging)
+          let manifest = prepared.package.manifest
+          let review = NSAlert()
+          review.messageText = "Install \(manifest.name)?"
+          review.informativeText = "Version: \(manifest.version)\nID: \(manifest.id)\nSource: \(source.repositoryURL)\nCommit: \(prepared.commit)\nPermissions: \(manifest.permissions.isEmpty ? "none" : manifest.permissions.joined(separator: ", "))\n\nInstall only code from publishers you trust. Spotify permission is reserved for the bundled example; other apps stay offline. No app can access terminal sessions."
+          review.addButton(withTitle: "Install")
+          review.addButton(withTitle: "Cancel")
+          guard review.runModal() == .alertFirstButtonReturn else { return }
+          let bundledRoot = Bundle.main.resourceURL?.appendingPathComponent("Plugins")
+          let bundled = bundledRoot.flatMap { try? FileManager.default.contentsOfDirectory(at: $0, includingPropertiesForKeys: nil) } ?? []
+          let ids = Set(bundled.compactMap { try? PluginPackage(root: $0).manifest.id })
+          let installed = try prepared.install(in: pluginsFolder, bundledIDs: ids)
+          let item = NSMenuItem()
+          item.representedObject = try PluginPackage(root: installed)
+          openApp(item)
+        } catch { NSAlert(error: error).runModal() }
+      }
+    } catch { NSAlert(error: error).runModal() }
   }
 
   @objc private func openFolder() {
@@ -48,20 +90,29 @@ final class PluginsMenuController: NSObject, NSMenuDelegate {
     if let existing = windows.first(where: { $0.package.manifest.id == package.manifest.id }) {
       existing.showWindow(nil); existing.window?.makeKeyAndOrderFront(nil); return
     }
+    let host = [NSApp.keyWindow, NSApp.mainWindow].compactMap { $0 }
+      .first { $0.tabbingIdentifier == "wink" }
+      ?? NSApp.orderedWindows.first { $0.isVisible && $0.tabbingIdentifier == "wink" }
     let controller = PluginWindowController(package: package)
     controller.onClose = { [weak self, weak controller] in self?.windows.removeAll { $0 === controller } }
     windows.append(controller)
+    if let host, let tab = controller.window { host.addTabbedWindow(tab, ordered: .above) }
     controller.showWindow(nil)
     controller.window?.makeKeyAndOrderFront(nil)
   }
 }
 
-/// No terminal objects, file loading, shell access, or network authority is exposed here.
+/// No shell or terminal authority. Spotify is a restricted bundled-host capability.
 final class PluginWindowController: NSWindowController, NSWindowDelegate, WKNavigationDelegate, WKUIDelegate, WKScriptMessageHandlerWithReply {
   let package: PluginPackage
   var onClose: (() -> Void)?
   private let webView: WKWebView
   private let content: WKUserContentController
+  private var spotifyAllowed: Bool {
+    guard package.manifest.id == "org.blink.spotify", package.manifest.permissions.contains("spotify"),
+          let root = Bundle.main.resourceURL?.appendingPathComponent("Plugins/org.blink.spotify") else { return false }
+    return package.root == root.resolvingSymlinksInPath().standardizedFileURL
+  }
   private var storageKey: String { "plugin.v1." + package.manifest.id }
 
   init(package: PluginPackage) {
@@ -75,7 +126,8 @@ final class PluginWindowController: NSWindowController, NSWindowDelegate, WKNavi
     let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 820, height: 560),
       styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
     window.title = package.manifest.name
-    window.tabbingMode = .disallowed
+    window.tabbingMode = .preferred
+    window.tabbingIdentifier = "wink"
     window.contentView = webView
     super.init(window: window)
     window.delegate = self
@@ -92,12 +144,17 @@ final class PluginWindowController: NSWindowController, NSWindowDelegate, WKNavi
   func windowWillClose(_ notification: Notification) {
     content.removeScriptMessageHandler(forName: "blink", contentWorld: .page)
     webView.stopLoading()
+    if spotifyAllowed { SpotifyService.shared.cancelLogin() }
     onClose?()
   }
 
   func webView(_ webView: WKWebView, decidePolicyFor action: WKNavigationAction,
                decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
     let url = action.request.url
+    if spotifyAllowed, action.navigationType == .linkActivated, let url = url,
+       url.scheme == "https", url.host == "open.spotify.com", url.user == nil, url.password == nil {
+      NSWorkspace.shared.open(url)
+    }
     decisionHandler(url?.scheme == "blink-plugin" && url?.host == package.manifest.id && action.targetFrame?.isMainFrame == true ? .allow : .cancel)
   }
 
@@ -109,9 +166,17 @@ final class PluginWindowController: NSWindowController, NSWindowDelegate, WKNavi
           let request = message.body as? [String: Any], let method = request["method"] as? String else {
       replyHandler(nil, "Invalid request"); return
     }
+    if method.hasPrefix("spotify.") {
+      guard spotifyAllowed else { replyHandler(nil, "Spotify requires the bundled Spotify plugin"); return }
+      Task { @MainActor in
+        do { replyHandler(try await SpotifyService.shared.call(method, request), nil) }
+        catch { replyHandler(nil, error.localizedDescription) }
+      }
+      return
+    }
     if method == "host.info" {
       replyHandler(["apiVersion": 1, "host": "wink", "platform": "macos", "pluginID": package.manifest.id,
-                    "capabilities": ["host.info"] + (package.manifest.permissions.contains("storage") ? ["storage.get", "storage.set"] : [])], nil)
+                    "capabilities": ["host.info"] + (spotifyAllowed ? ["spotify"] : []) + (package.manifest.permissions.contains("storage") ? ["storage.get", "storage.set"] : [])], nil)
       return
     }
     guard package.manifest.permissions.contains("storage"),
@@ -139,6 +204,9 @@ final class PluginWindowController: NSWindowController, NSWindowDelegate, WKNavi
     Object.defineProperty(window, 'blink', {value: Object.freeze({
       apiVersion: 1,
       host: Object.freeze({info: () => call('host.info')}),
+      spotify: Object.freeze({status: () => call('spotify.status'), login: clientID => call('spotify.login', {clientID}),
+        logout: () => call('spotify.logout'), request: (verb, path, query = {}, body) => call('spotify.request', {verb, path, query, ...(body === undefined ? {} : {body})}),
+        artwork: url => call('spotify.artwork', {url})}),
       storage: Object.freeze({get: key => call('storage.get', {key}), set: (key, value) => call('storage.set', {key, value})})
     }), writable: false, configurable: false});
   })();

@@ -19,8 +19,8 @@ a real PTY running your login shell, and native macOS tabs.
 - **tmux:** **Window ▸ Fit Window to tmux** sizes the window to a tmux
   session that a smaller client (such as an iPad) is also attached to, and
   images and the mouse work inside tmux.
-- **Web apps (experimental):** isolated HTML/CSS/JavaScript plugin windows from
-  the Apps menu, with a portable Blink/Wink API. See [plugin development](docs/plugins.md).
+- **Web apps (experimental):** isolated HTML/CSS/JavaScript plugin tabs from
+  the Apps menu, with GitHub-link installation and a portable Blink/Wink API. Includes a keyboard-driven Spotify Connect companion with OAuth login. See [plugin development](docs/plugins.md) and the [Spotify plugin source](https://github.com/myneid/wink-spotify).
 - **Blink Bell:** bells you make in Blink go into Wink's tabs, so `ring` and
   long-command hooks in Wink (locally or over ssh) ring your Blink devices.
 - **Themes:** Blink's themes and fonts.
@@ -420,3 +420,10 @@ hosts are missing, open Blink's folder in the Files app once.
 GPL-3.0 (see `LICENSE`), because it bundles Blink Shell's GPLv3 themes.
 hterm is BSD-licensed (`LICENSE.hterm`, from Chromium libapps 1.70).
 Wink isn't affiliated with Blink Shell.
+
+### Bundled Spotify example
+
+The Apps menu includes an experimental keyboard-first Spotify companion with
+browser OAuth login, artwork and Spotify Connect controls. A registered Spotify
+client ID is required; public Spotify access is not included merely by bundling
+it. See [plugin setup and limitations](docs/plugins.md#bundled-spotify-example-experimental).

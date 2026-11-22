@@ -2,6 +2,10 @@ import AppKit
 import WebKit
 let app = NSApplication.shared
 app.setActivationPolicy(.accessory)
+let appsMenu = PluginsMenuController()
+appsMenu.menuNeedsUpdate(appsMenu.menu)
+precondition(appsMenu.menu.items.contains { $0.title == "Install from GitHub…" && $0.target != nil })
+print("PASS: Apps menu exposes GitHub installation")
 let package = try PluginPackage(root: URL(fileURLWithPath: CommandLine.arguments[1]))
 let controller = PluginWindowController(package: package)
 controller.showWindow(nil)
@@ -23,6 +27,7 @@ func verify() {
               const rejected = async fn => { try { await fn(); return false; } catch (_) { return true; } };
               checks.push(await rejected(() => blink.storage.set('oversized', 'x'.repeat(70000))));
               checks.push(await rejected(() => blink.storage.set('', 'bad')));
+              checks.push(await rejected(() => blink.spotify.status()));
               checks.push(await rejected(() => window.webkit.messageHandlers.blink.postMessage({method: 'shell.exec', key: 'x'})));
               const script = document.createElement('script');
               script.textContent = 'window.inlineScriptExecuted = true';
@@ -30,7 +35,7 @@ func verify() {
               checks.push(window.inlineScriptExecuted !== true);
               return checks;
               """, arguments: [:], in: nil, in: .page) { result in
-                guard case .success(let value) = result, let checks = value as? [Bool], checks.count == 4, checks.allSatisfy({ $0 }) else {
+                guard case .success(let value) = result, let checks = value as? [Bool], checks.count == 5, checks.allSatisfy({ $0 }) else {
                   print("FAIL: bridge/CSP boundaries: \(result)"); exit(1)
                 }
                 print("PASS: storage quota, invalid key, unsupported native command, inline-script CSP")
