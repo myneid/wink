@@ -66,8 +66,12 @@ final class PluginsMenuController: NSObject, NSMenuDelegate {
       return packages().filter { $0.manifest.id != "org.blink.apps" }.map { package -> [String: Any] in
         let installed = receipt(package)
         let pending = updates[package.manifest.id]
+        let bundledProjects = ["org.blink.spotify": "https://github.com/myneid/wink-spotify",
+                               "org.blink.demo": "https://github.com/myneid/wink/tree/main/Resources/Plugins/org.blink.demo"]
+        let repositoryURL = installed?["repository"].flatMap { try? GitHubPluginSource($0).repositoryURL }
+          ?? (installed == nil ? bundledProjects[package.manifest.id] : nil) ?? ""
         return ["id":package.manifest.id, "name":package.manifest.name, "version":package.manifest.version,
-                "source":installed?["repository"] ?? "Bundled with Wink", "updatable":installed != nil,
+                "source":installed?["repository"] ?? "Bundled with Wink", "repositoryURL":repositoryURL, "updatable":installed != nil,
                 "updateVersion":pending?.package.manifest.version ?? "", "permissions":package.manifest.permissions]
       }
     }
@@ -225,6 +229,10 @@ final class PluginWindowController: NSWindowController, NSWindowDelegate, WKNavi
     let url = action.request.url
     if spotifyAllowed, action.navigationType == .linkActivated, let url = url,
        url.scheme == "https", url.host == "open.spotify.com", url.user == nil, url.password == nil {
+      NSWorkspace.shared.open(url)
+    }
+    if appsAllowed, action.navigationType == .linkActivated, let url,
+       (try? GitHubPluginSource(url.absoluteString)) != nil {
       NSWorkspace.shared.open(url)
     }
     // Spotify's SDK runs its player in this exact HTTPS iframe. Never grant it the native bridge.

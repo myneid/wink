@@ -29,6 +29,11 @@ func check() {
     if (!document.querySelector('#apps')) return false;
     const apps = await blink.apps.list();
     if (!apps.some(app => app.id === 'org.blink.spotify' && !app.updatable)) throw new Error('Missing bundled metadata');
+    if (apps.find(app => app.id === 'org.blink.spotify').repositoryURL !== 'https://github.com/myneid/wink-spotify') throw new Error('Missing Spotify repository');
+    if (apps.find(app => app.id === 'org.blink.demo').repositoryURL !== 'https://github.com/myneid/wink/tree/main/Resources/Plugins/org.blink.demo') throw new Error('Missing Playground repository');
+    await refresh();
+    const links = [...document.querySelectorAll('#apps a')];
+    if (!links.some(link => link.href === 'https://github.com/myneid/wink-spotify' && link.textContent.includes('Open GitHub'))) throw new Error('Missing clickable project link');
     if (!document.querySelector('#check') || !document.querySelector('#install')) throw new Error('Missing management controls');
     return true;
     """, arguments: [:], in: nil, in: .page) { result in
