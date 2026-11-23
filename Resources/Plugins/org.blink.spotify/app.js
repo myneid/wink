@@ -1,6 +1,7 @@
 'use strict';
 const $ = id => document.getElementById(id), api = blink.spotify;
 let player = null, localDevice = null, sdkLoading = null, selectedDevice = null;
+let artist = null, album = null, history = [], loadGeneration = 0;
 let playback = null, view = 'search', offset = 0, artwork = '', busy = false, connected = false;
 const request = (verb, path, query = {}, body) => api.request(verb, path, query, body);
 const report = error => { $('status').textContent = error?.message || String(error); };
@@ -46,36 +47,69 @@ async function devices() {
   if ($('devices').selectedIndex < 0) { selectedDevice = null; $('devices').value = localDevice || ''; }
 }
 function button(text, action) { const b = document.createElement('button'); b.textContent = text; b.onclick = () => run(action); return b; }
-function row(item, kind) {
+function navigate(next, title, item = null) {
+  history.push({view, offset, artist, album, title:$('heading').textContent, query:$('query').value, type:$('searchtype').value, group:$('release-group').value});
+  view = next; offset = 0;
+  if (next === 'artist') { artist = item; album = null; $('release-group').value = 'album'; }
+  if (next === 'album') album = item;
+  $('heading').textContent = title;
+  return load();
+}
+function row(item, kind, position) {
   const track = item.track || item.item || item;
   if (!track) return;
   const div = document.createElement('div'); div.className = 'row';
   const description = document.createElement('div'); description.className = 'description'; description.textContent = track.name || 'Unavailable';
-  const sub = document.createElement('small'); sub.textContent = (track.artists || []).map(a => a.name).join(', ') || track.owner?.display_name || '';
+  const sub = document.createElement('small');
+  sub.textContent = kind === 'artist' ? 'Artist' : kind === 'album' ? `${track.release_date || ''} · ${track.total_tracks ?? '?'} tracks · ${track.album_group || track.album_type || 'album'}` : (track.artists || []).map(a => a.name).join(', ') || track.owner?.display_name || '';
+  if (view === 'album' && kind === 'track') sub.textContent = `Disc ${track.disc_number || 1} · ${track.track_number || position + 1} · ${time(track.duration_ms)}`;
   description.append(sub); div.append(description);
-  if (kind === 'playlist') div.append(button('Open', () => { view = track.id; offset = 0; $('heading').textContent = track.name; return load(); }));
-  if (track.uri) {
-    div.append(button('Play', () => command('/play', 'PUT', {}, kind === 'playlist' ? {context_uri: track.uri} : {uris: [track.uri]})));
-    if (kind !== 'playlist') div.append(button('+ Queue', () => command('/queue', 'POST', {uri: track.uri})));
+  if (kind === 'artist') div.append(button('Albums →', () => navigate('artist', track.name, track)));
+  if (kind === 'album') div.append(button('Tracks →', () => navigate('album', track.name, track)));
+  if (kind === 'playlist') div.append(button('Open', () => navigate(track.id, track.name)));
+  if (track.uri && kind !== 'artist') {
+    const body = kind === 'playlist' || kind === 'album' ? {context_uri:track.uri} : view === 'album' ? {context_uri:album.uri, offset:{position}} : {uris:[track.uri]};
+    div.append(button(kind === 'album' ? 'Play album' : 'Play', () => command('/play', 'PUT', {}, body)));
+    if (kind === 'track') div.append(button('+ Queue', () => command('/queue', 'POST', {uri:track.uri})));
   }
   const href = track.external_urls?.spotify;
   if (href && href.startsWith('https://open.spotify.com/')) { const a = document.createElement('a'); a.href = href; a.textContent = 'Spotify ↗'; a.target = '_blank'; a.rel = 'noopener'; div.append(a); }
   $('results').append(div);
 }
 async function load(append = false) {
+  const generation = ++loadGeneration;
+  $('back').hidden = !history.length;
+  $('discography').hidden = view !== 'artist';
+  $('playalbum').hidden = view !== 'album';
+  $('more').hidden = true;
   if (!append) $('results').replaceChildren();
-  let data, items, kind = 'track'; const query = {limit: '10', offset: String(offset)};
+  let data, items, kind = 'track'; const query = {limit:'10', offset:String(offset)};
   if (view === 'search') {
     const q = $('query').value.trim(); if (!q) return;
-    data = (await request('GET', '/search', {...query, q, type: 'track'}))?.tracks;
-  } else if (view === 'library') data = await request('GET', '/me/tracks', query);
+    kind = $('searchtype').value;
+    data = (await request('GET', '/search', {...query, q, type:kind}))?.[kind + 's'];
+  } else if (view === 'artist') {
+    kind = 'album';
+    data = await request('GET', `/artists/${artist.id}/albums`, {...query, include_groups:$('release-group').value});
+  } else if (view === 'album') data = await request('GET', `/albums/${album.id}/tracks`, query);
+  else if (view === 'library') data = await request('GET', '/me/tracks', query);
   else if (view === 'playlists') { data = await request('GET', '/me/playlists', query); kind = 'playlist'; }
   else if (view === 'queue') { const queue = await request('GET', '/me/player/queue'); items = queue?.queue || []; }
   else data = await request('GET', `/playlists/${view}/items`, query);
-  items = items || data?.items || []; items.forEach(item => row(item, kind));
+  if (generation !== loadGeneration) return;
+  items = items || data?.items || []; items.forEach((item, index) => row(item, kind, offset + index));
   if (!items.length && !append) $('results').textContent = 'No items available.';
   $('more').hidden = !data?.next;
 }
+$('back').onclick = () => run(async () => {
+  const previous = history.pop(); if (!previous) return;
+  ({view, artist, album} = previous); offset = 0;
+  $('query').value = previous.query; $('searchtype').value = previous.type; $('release-group').value = previous.group;
+  $('heading').textContent = previous.title;
+  await load();
+});
+$('release-group').onchange = () => { offset = 0; run(() => load()); };
+$('playalbum').onclick = () => run(() => command('/play', 'PUT', {}, {context_uri:album.uri}));
 $('login').onclick = () => run(async () => { $('login').disabled = true; try { await api.login($('client').value.trim()); session(true); await devices(); await startLocalPlayer(); await refresh(); } finally { $('login').disabled = false; } });
 $('disconnect').onclick = () => run(async () => { if (player) player.disconnect(); player = null; localDevice = null; selectedDevice = null; $('stream-status').textContent = 'Disconnected'; await api.logout(); session(false); $('art').removeAttribute('src'); $('results').replaceChildren(); artwork = ''; playback = null; });
 $('toggle').onclick = () => run(() => command(playback?.is_playing ? '/pause' : '/play'));
@@ -87,9 +121,9 @@ $('volume').onchange = () => run(() => command('/volume', 'PUT', {volume_percent
 $('seek').onchange = () => run(() => command('/seek', 'PUT', {position_ms: $('seek').value}));
 $('devices').onchange = () => run(async () => { if ($('devices').value) { selectedDevice = $('devices').value; await request('PUT', '/me/player', {}, {device_ids:[$('devices').value], play:false}); await refresh(); } });
 $('refresh').onclick = () => run(async () => { await devices(); await refresh(); });
-$('searchform').onsubmit = event => { event.preventDefault(); view = 'search'; offset = 0; $('heading').textContent = 'Search results'; run(() => load()); };
-document.querySelectorAll('[data-view]').forEach(b => { b.onclick = () => { view = b.dataset.view; offset = 0; $('heading').textContent = b.textContent; run(() => load()); }; });
-$('more').onclick = () => { offset += 10; run(() => load(true)); };
+$('searchform').onsubmit = event => { event.preventDefault(); view = 'search'; offset = 0; history = []; artist = album = null; $('heading').textContent = 'Search results'; run(() => load()); };
+document.querySelectorAll('[data-view]').forEach(b => { b.onclick = () => { view = b.dataset.view; offset = 0; history = []; artist = album = null; $('heading').textContent = b.textContent; run(() => load()); }; });
+$('more').onclick = () => run(async () => { const previous = offset; const generation = loadGeneration; offset += 10; $('more').disabled = true; try { await load(true); } catch (error) { if (loadGeneration === generation + 1) offset = previous; throw error; } finally { $('more').disabled = false; } });
 document.addEventListener('keydown', event => {
   if (!connected || event.metaKey || event.ctrlKey || event.altKey || ['INPUT','TEXTAREA','SELECT','BUTTON'].includes(event.target.tagName)) return;
   const actions = {' ': 'toggle', n:'next', p:'previous'};

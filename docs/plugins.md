@@ -188,3 +188,9 @@ secure-storage backend will differ; the plugin-facing API need not change.
 
 Reference: [Spotify PKCE](https://developer.spotify.com/documentation/web-api/tutorials/code-pkce-flow)
 and [redirect requirements](https://developer.spotify.com/documentation/web-api/concepts/redirect_uri).
+
+## Portable Apps manager
+
+Apps → Manage Apps opens bundled `org.blink.apps`. Its keyboard-driven web UI calls `blink.apps.list()`, `open(id)`, `install()`, `check(id)` and `update(id)`. Only the exact bundled manager may invoke these methods. Ordinary plugins cannot manage other apps. Blink can reuse the assets and implement this Promise-based contract with native iOS installation/approval UI.
+
+`list` returns id, name, version, source, updatable, updateVersion and permissions. `check` contacts GitHub on user action and stages a commit-pinned candidate. `update` requires source/version/permission review and retains a previous-package backup. The old tab closes; stored data remains. Bundled plugins update with Wink. New receipts preserve refs; legacy receipts follow the default branch. Commit-pinned installs stay pinned. No background auto-installation or iOS implementation.

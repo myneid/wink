@@ -2,6 +2,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 node Tests/SpotifyDefaultsChecks.cjs
+node Tests/SpotifyBrowsingChecks.cjs
 CHECK_DIR=$(mktemp -d /tmp/wink-plugin-checks.XXXXXX)
 swiftc -D WINK_TESTING Sources/PluginPackage.swift Tests/PluginPackageChecks.swift -o "$CHECK_DIR/packages"
 "$CHECK_DIR/packages"
@@ -16,3 +17,6 @@ cp -R Resources/Plugins "$CHECK_DIR/SpotifyChecks.app/Contents/Resources/"
 swiftc -D WINK_TESTING Sources/PluginPackage.swift Sources/PluginInstaller.swift Sources/Plugins.swift Sources/SpotifyService.swift Tests/SpotifyWebViewChecks/main.swift -o "$CHECK_DIR/SpotifyChecks.app/Contents/MacOS/SpotifyChecks"
 "$CHECK_DIR/SpotifyChecks.app/Contents/MacOS/SpotifyChecks"
 echo "Check binaries retained at $CHECK_DIR"
+
+swiftc -D WINK_TESTING Sources/PluginPackage.swift Sources/PluginInstaller.swift Sources/Plugins.swift Sources/SpotifyService.swift Tests/AppsWebViewChecks/main.swift -o "$CHECK_DIR/SpotifyChecks.app/Contents/MacOS/SpotifyChecks"
+"$CHECK_DIR/SpotifyChecks.app/Contents/MacOS/SpotifyChecks"

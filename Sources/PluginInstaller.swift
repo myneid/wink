@@ -44,11 +44,32 @@ struct PreparedPlugin {
     let destination = folder.appendingPathComponent(package.manifest.id, isDirectory: true)
     guard !fm.fileExists(atPath: destination.path) else { throw PluginPackage.Failure.invalid("Installation folder already exists") }
     let receipt: [String: String] = ["repository": source.repositoryURL, "path": source.path, "commit": commit,
-                                   "installedAt": ISO8601DateFormatter().string(from: Date())]
+                                   "ref": source.ref ?? "", "installedAt": ISO8601DateFormatter().string(from: Date())]
     try JSONSerialization.data(withJSONObject: receipt, options: [.prettyPrinted, .sortedKeys])
       .write(to: package.root.appendingPathComponent(".wink-source.json"), options: .atomic)
     try fm.moveItem(at: package.root, to: destination)
     return destination
+  }
+}
+
+/// Updates retain the publisher binding and preserve the previous package for recovery.
+extension PreparedPlugin {
+  func update(_ current: PluginPackage, receipt: [String: String], backups: URL) throws {
+    guard package.manifest.id == current.manifest.id,
+          receipt["repository"] == source.repositoryURL, receipt["path"] == source.path else {
+      throw PluginPackage.Failure.invalid("Update does not match the installed app's identity and source")
+    }
+    let fm = FileManager.default
+    try fm.createDirectory(at: backups, withIntermediateDirectories: true)
+    let backup = backups.appendingPathComponent(current.manifest.id + "-" + UUID().uuidString)
+    var next = receipt
+    next["commit"] = commit; next["ref"] = source.ref ?? ""
+    next["installedAt"] = ISO8601DateFormatter().string(from: Date())
+    try JSONSerialization.data(withJSONObject: next, options: [.sortedKeys])
+      .write(to: package.root.appendingPathComponent(".wink-source.json"), options: .atomic)
+    try fm.moveItem(at: current.root, to: backup)
+    do { try fm.moveItem(at: package.root, to: current.root) }
+    catch { try fm.moveItem(at: backup, to: current.root); throw error }
   }
 }
 

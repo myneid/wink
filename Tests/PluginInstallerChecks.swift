@@ -57,6 +57,16 @@ private final class FixtureProtocol: URLProtocol {
     let duplicate = try await installer.prepare(source, staging: root.appendingPathComponent("staging"))
     check((try? duplicate.install(in: plugins, bundledIDs: [])) == nil)
     check((try? duplicate.install(in: root.appendingPathComponent("other"), bundledIDs: ["org.example.fixture"])) == nil)
+    let current = try PluginPackage(root: installed)
+    let receipt = try JSONSerialization.jsonObject(with: Data(contentsOf: installed.appendingPathComponent(".wink-source.json"))) as! [String: String]
+    var wrong = receipt; wrong["repository"] = "https://github.com/other/repo"
+    let backups = root.appendingPathComponent("backups")
+    check((try? duplicate.update(current, receipt: wrong, backups: backups)) == nil)
+    try duplicate.update(current, receipt: receipt, backups: backups)
+    check(try PluginPackage(root: installed).manifest.id == current.manifest.id)
+    check(try FileManager.default.contentsOfDirectory(at: backups, includingPropertiesForKeys: nil).count == 1)
+    let updated = try JSONSerialization.jsonObject(with: Data(contentsOf: installed.appendingPathComponent(".wink-source.json"))) as! [String: String]
+    check(updated["ref"] == "main" && updated["commit"] == sha)
     for kind in 0..<5 {
       switch kind {
       case 0: try tree(mode: "120000")

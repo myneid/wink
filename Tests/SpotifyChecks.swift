@@ -9,8 +9,9 @@ import Foundation
     }
     check(SpotifyCallback.validate("/callback?state=secret&error=access_denied", state: "secret").valid)
     check(SpotifyCallback.validate("/callback?state=secret&error=access_denied", state: "secret").code == nil)
-    for path in ["/me/player", "/me/player/devices", "/search", "/me/tracks", "/me/playlists", "/playlists/abc123/items"] { check(SpotifyService.allowed(path: path, verb: "GET")) }
-    for path in ["https://evil.test/", "//evil.test", "/me/../secrets", "/me/player?x=y", "/playlists/../items", "/me/following"] { check(!SpotifyService.allowed(path: path, verb: "GET")) }
+    for path in ["/me/player", "/me/player/devices", "/search", "/me/tracks", "/me/playlists", "/playlists/abc123/items", "/artists/abc123/albums", "/albums/abc123/tracks"] { check(SpotifyService.allowed(path: path, verb: "GET")) }
+    for path in ["https://evil.test/", "//evil.test", "/me/../secrets", "/me/player?x=y", "/playlists/../items", "/me/following", "/artists/../albums", "/albums/abc/tracks?x=y", "/artists/abc/top-tracks"] { check(!SpotifyService.allowed(path: path, verb: "GET")) }
+    check(!SpotifyService.allowed(path: "/artists/abc/albums", verb: "PUT"))
     check(!SpotifyService.allowed(path: "/me/tracks", verb: "DELETE"))
     check(!SpotifyService.allowed(path: "/me/player/play", verb: "GET"))
     check(SpotifyService.allowed(path: "/me/player/play", verb: "PUT"))

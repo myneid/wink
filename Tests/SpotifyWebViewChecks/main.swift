@@ -28,6 +28,7 @@ func check() {
   web.callAsyncJavaScript("""
     if (!document.querySelector('#login')) return false;
     if (document.querySelector('#client').value !== '824343e4193644aab4193e4574480d82' || document.querySelector('#client').type !== 'hidden') throw new Error('Missing bundled client configuration');
+    if (document.querySelector('#searchtype').value !== 'artist' || !document.querySelector('#release-group') || !document.querySelector('#playalbum')) throw new Error('Missing artist/album browsing UI');
     const info = await blink.host.info();
     if (!info.capabilities.includes('spotify')) throw new Error('Missing Spotify capability');
     if (!document.querySelector('#login').textContent.includes('Connect')) throw new Error('Missing connect UI');

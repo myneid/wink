@@ -87,7 +87,7 @@ final class SpotifyService {
   }
   static func allowed(path: String, verb: String) -> Bool {
     let reads = ["/me", "/me/player", "/me/player/devices", "/me/player/queue", "/me/tracks", "/me/playlists", "/search"]
-    if verb == "GET" { return reads.contains(path) || path.range(of: "^/playlists/[A-Za-z0-9]+/(items|tracks)$", options: .regularExpression) != nil }
+    if verb == "GET" { return reads.contains(path) || path.range(of: "^/(playlists/[A-Za-z0-9]+/(items|tracks)|artists/[A-Za-z0-9]+/albums|albums/[A-Za-z0-9]+/tracks)$", options: .regularExpression) != nil }
     if verb == "POST" { return ["/me/player/next", "/me/player/previous", "/me/player/queue"].contains(path) }
     return verb == "PUT" && ["/me/player", "/me/player/play", "/me/player/pause", "/me/player/seek", "/me/player/volume", "/me/player/repeat", "/me/player/shuffle"].contains(path)
   }

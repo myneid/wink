@@ -4,6 +4,7 @@ import WebKit
 final class PluginsMenuController: NSObject, NSMenuDelegate {
   let menu = NSMenu(title: "Apps")
   private var installing = false
+  private var updates: [String: PreparedPlugin] = [:]
   private var windows: [PluginWindowController] = []
   private var pluginsFolder: URL {
     FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support/Wink/Plugins", isDirectory: true)
@@ -13,6 +14,9 @@ final class PluginsMenuController: NSObject, NSMenuDelegate {
 
   func menuNeedsUpdate(_ menu: NSMenu) {
     menu.removeAllItems()
+    let manage = menu.addItem(withTitle: "Manage Apps…", action: #selector(manageApps), keyEquivalent: "")
+    manage.target = self
+    menu.addItem(.separator())
     var packages: [String: PluginPackage] = [:]
     let roots = [Bundle.main.resourceURL?.appendingPathComponent("Plugins"), pluginsFolder].compactMap { $0 }
     for root in roots {
@@ -37,6 +41,64 @@ final class PluginsMenuController: NSObject, NSMenuDelegate {
     install.target = self
     let folder = menu.addItem(withTitle: "Open Apps Folder…", action: #selector(openFolder), keyEquivalent: "")
     folder.target = self
+  }
+
+  private func packages() -> [PluginPackage] {
+    var result: [String: PluginPackage] = [:]
+    for root in [Bundle.main.resourceURL?.appendingPathComponent("Plugins"), pluginsFolder].compactMap({ $0 }) {
+      for folder in (try? FileManager.default.contentsOfDirectory(at: root, includingPropertiesForKeys: nil)) ?? [] {
+        if let package = try? PluginPackage(root: folder), result[package.manifest.id] == nil { result[package.manifest.id] = package }
+      }
+    }
+    return result.values.sorted { $0.manifest.name < $1.manifest.name }
+  }
+  private func receipt(_ package: PluginPackage) -> [String: String]? {
+    guard package.root.deletingLastPathComponent() == pluginsFolder.standardizedFileURL,
+          let data = try? Data(contentsOf: package.root.appendingPathComponent(".wink-source.json")) else { return nil }
+    return (try? JSONSerialization.jsonObject(with: data)) as? [String: String]
+  }
+  @objc private func manageApps() {
+    guard let package = packages().first(where: { $0.manifest.id == "org.blink.apps" }) else { return }
+    let item = NSMenuItem(); item.representedObject = package; openApp(item)
+  }
+  @MainActor private func appsCall(_ method: String, _ args: [String: Any]) async throws -> Any {
+    if method == "apps.list" {
+      return packages().filter { $0.manifest.id != "org.blink.apps" }.map { package -> [String: Any] in
+        let installed = receipt(package)
+        let pending = updates[package.manifest.id]
+        return ["id":package.manifest.id, "name":package.manifest.name, "version":package.manifest.version,
+                "source":installed?["repository"] ?? "Bundled with Wink", "updatable":installed != nil,
+                "updateVersion":pending?.package.manifest.version ?? "", "permissions":package.manifest.permissions]
+      }
+    }
+    if method == "apps.install" { installFromGitHub(); return true }
+    guard let id = args["id"] as? String, let package = packages().first(where: { $0.manifest.id == id }) else {
+      throw PluginPackage.Failure.invalid("App not found")
+    }
+    if method == "apps.open" { let item = NSMenuItem(); item.representedObject = package; openApp(item); return true }
+    guard let saved = receipt(package), let repository = saved["repository"] else {
+      throw PluginPackage.Failure.invalid("Bundled apps update with Wink. Use Wink → Check for Updates.")
+    }
+    if method == "apps.check" {
+      let path = saved["path"] ?? "", ref = saved["ref"] ?? ""
+      // Older receipts omitted ref; follow the repository default branch for those installs.
+      let link = ref.isEmpty && path.isEmpty ? repository : repository + "/tree/" + (ref.isEmpty ? "HEAD" : ref) + (path.isEmpty ? "" : "/" + path)
+      let prepared = try await PluginInstaller().prepare(GitHubPluginSource(link), staging: pluginsFolder.deletingLastPathComponent().appendingPathComponent("PluginDownloads"))
+      guard prepared.package.manifest.id == id else { throw PluginPackage.Failure.invalid("Publisher changed the app ID; update refused") }
+      updates[id] = prepared.commit == saved["commit"] ? nil : prepared
+      return updates[id] != nil
+    }
+    if method == "apps.update", let prepared = updates[id] {
+      let alert = NSAlert(); alert.messageText = "Update \(package.manifest.name)?"
+      alert.informativeText = "Version: \(package.manifest.version) → \(prepared.package.manifest.version)\nSource: \(prepared.source.repositoryURL)\nCommit: \(prepared.commit)\nPermissions: \(prepared.package.manifest.permissions.joined(separator: ", "))\n\nThe app tab will close. Its stored data and a backup of the previous package will be retained."
+      alert.addButton(withTitle: "Update"); alert.addButton(withTitle: "Cancel")
+      guard alert.runModal() == .alertFirstButtonReturn else { return false }
+      try prepared.update(package, receipt: saved, backups: pluginsFolder.deletingLastPathComponent().appendingPathComponent("PluginBackups"))
+      windows.first(where: { $0.package.manifest.id == id })?.close()
+      updates[id] = nil
+      return true
+    }
+    throw PluginPackage.Failure.invalid("Unsupported app operation; check for updates first")
   }
 
   @objc private func installFromGitHub() {
@@ -94,6 +156,10 @@ final class PluginsMenuController: NSObject, NSMenuDelegate {
       .first { $0.tabbingIdentifier == "wink" }
       ?? NSApp.orderedWindows.first { $0.isVisible && $0.tabbingIdentifier == "wink" }
     let controller = PluginWindowController(package: package)
+    controller.appsHandler = { [weak self] method, args in
+      guard let self else { throw PluginPackage.Failure.invalid("Apps manager closed") }
+      return try await self.appsCall(method, args)
+    }
     controller.onClose = { [weak self, weak controller] in self?.windows.removeAll { $0 === controller } }
     windows.append(controller)
     if let host, let tab = controller.window { host.addTabbedWindow(tab, ordered: .above) }
@@ -106,6 +172,11 @@ final class PluginsMenuController: NSObject, NSMenuDelegate {
 final class PluginWindowController: NSWindowController, NSWindowDelegate, WKNavigationDelegate, WKUIDelegate, WKScriptMessageHandlerWithReply {
   let package: PluginPackage
   var onClose: (() -> Void)?
+  var appsHandler: ((String, [String: Any]) async throws -> Any)?
+  private var appsAllowed: Bool {
+    guard package.manifest.id == "org.blink.apps", let root = Bundle.main.resourceURL?.appendingPathComponent("Plugins/org.blink.apps") else { return false }
+    return package.root == root.resolvingSymlinksInPath().standardizedFileURL
+  }
   private let webView: WKWebView
   private let content: WKUserContentController
   private var spotifyAllowed: Bool {
@@ -173,6 +244,14 @@ final class PluginWindowController: NSWindowController, NSWindowDelegate, WKNavi
           let request = message.body as? [String: Any], let method = request["method"] as? String else {
       replyHandler(nil, "Invalid request"); return
     }
+    if method.hasPrefix("apps.") {
+      guard appsAllowed, let handler = appsHandler else { replyHandler(nil, "Apps management requires the bundled Apps screen"); return }
+      Task { @MainActor in
+        do { replyHandler(try await handler(method, request), nil) }
+        catch { replyHandler(nil, error.localizedDescription) }
+      }
+      return
+    }
     if method.hasPrefix("spotify.") {
       guard spotifyAllowed else { replyHandler(nil, "Spotify requires the bundled Spotify plugin"); return }
       Task { @MainActor in
@@ -211,6 +290,8 @@ final class PluginWindowController: NSWindowController, NSWindowDelegate, WKNavi
     Object.defineProperty(window, 'blink', {value: Object.freeze({
       apiVersion: 1,
       host: Object.freeze({info: () => call('host.info')}),
+      apps: Object.freeze({list: () => call('apps.list'), open: id => call('apps.open', {id}),
+        check: id => call('apps.check', {id}), update: id => call('apps.update', {id}), install: () => call('apps.install')}),
       spotify: Object.freeze({status: () => call('spotify.status'), login: clientID => call('spotify.login', {clientID}),
         logout: () => call('spotify.logout'), streamingToken: () => call('spotify.streamingToken'), request: (verb, path, query = {}, body) => call('spotify.request', {verb, path, query, ...(body === undefined ? {} : {body})}),
         artwork: url => call('spotify.artwork', {url})}),
