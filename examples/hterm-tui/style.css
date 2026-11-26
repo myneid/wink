@@ -1,0 +1,13 @@
+html, body { height: 100%; margin: 0; }
+body { display: flex; flex-direction: column; background: #14201f; color: #e6f3ed; }
+#terminal { position: relative; flex: 1; min-height: 0; }
+nav { display: flex; gap: 8px; padding: 8px; }
+button {
+  min-height: 44px;
+  padding: 0 16px;
+  background: #223632;
+  color: inherit;
+  border: 1px solid #527268;
+  border-radius: 6px;
+  font: inherit;
+}

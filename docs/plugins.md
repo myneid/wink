@@ -1,6 +1,6 @@
 # Portable web plugins — API 1 (experimental)
 
-Wink implements the first host. Blink/iOS is **not implemented or tested**.
+Wink implements the first host. Blink for iOS does **not** yet include an Apps host.
 The package, JavaScript contract and capability names are platform-neutral:
 a future Blink host should load the same package without changes to its code.
 Do not branch on host name when capability detection suffices.
@@ -14,6 +14,40 @@ its existing tab. If no Wink window exists, a new window is created. **Apps → 
 the menu rescans when opened. No restart, registry or install script is needed.
 Bundled IDs take precedence; duplicate user IDs are ignored. Invalid packages
 appear disabled with the validation reason in their tooltip.
+
+## Build an hterm TUI
+
+To try it on Wink, paste this URL into **Apps → Install from GitHub…**:
+
+```text
+https://github.com/myneid/wink/tree/main/examples/hterm-tui
+```
+
+Choose **Download for Review**, then **Install**. The starter requests no native
+permissions and runs on Wink 0.9.1; no app upgrade is needed.
+
+Copy [the TUI Starter package](../examples/hterm-tui/) into your repository.
+Change the ID and name in `manifest.json`, then replace the sample checklist
+in `app.js` with your own app. Keep `terminal.js`, the vendored hterm script
+and its license alongside the app. No generator or build step is required.
+
+`terminal.js` mounts hterm and passes your app terminal input and resize
+events. Write text or ANSI escape sequences with `write(text)` and query
+columns and rows with `size()`. The sample includes touch buttons for users
+without a hardware keyboard. Keep scripts in local files, not inline script
+tags or CDN URLs.
+
+For local testing, copy the package into **Apps → Open Apps Folder…** and
+open **TUI Starter** from the Apps menu. To distribute it, put the
+ready-to-run package in a public GitHub repository and share the repository
+(or package-folder) URL for **Apps → Install from GitHub…**.
+
+This uses the existing API 1 manifest with no extra permissions. hterm
+renders in the plugin's own WebView, never in the user's login-shell tab.
+App logic runs as JavaScript in that WebView: there is no shell, PTY, Node,
+or native process. The package does not call Wink-only APIs; Blink still
+needs an API 1 Apps host before it can install or open these packages. The
+starter was tested in an iPhone simulator WKWebView test host, not in Blink.
 
 ## Install from GitHub
 

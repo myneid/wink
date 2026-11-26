@@ -20,7 +20,7 @@ a real PTY running your login shell, and native macOS tabs.
   session that a smaller client (such as an iPad) is also attached to, and
   images and the mouse work inside tmux.
 - **Web apps (experimental):** isolated HTML/CSS/JavaScript plugin tabs from
-  the Apps menu, with GitHub-link installation and a portable Blink/Wink API. Includes a keyboard-driven Spotify Connect companion with OAuth login. See [plugin development](docs/plugins.md) and the [Spotify plugin source](https://github.com/myneid/wink-spotify).
+  the Apps menu, with GitHub-link installation and a portable Blink/Wink API. Includes a keyboard-driven Spotify Connect companion with OAuth login. Build a shell-free terminal UI with the [hterm TUI Starter](docs/plugins.md#build-an-hterm-tui). See [plugin development](docs/plugins.md) and the [Spotify plugin source](https://github.com/myneid/wink-spotify).
 - **Blink Bell:** bells you make in Blink go into Wink's tabs, so `ring` and
   long-command hooks in Wink (locally or over ssh) ring your Blink devices.
 - **Themes:** Blink's themes and fonts.

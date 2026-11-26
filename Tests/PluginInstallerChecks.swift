@@ -78,6 +78,21 @@ private final class FixtureProtocol: URLProtocol {
       do { _ = try await installer.prepare(source, staging: root); fatalError("Accepted invalid tree \(kind)") }
       catch { count += 1 }
     }
+    let example = URL(fileURLWithPath: "examples/hterm-tui", isDirectory: true)
+    let files = try FileManager.default.contentsOfDirectory(at: example, includingPropertiesForKeys: nil)
+    let entries: [[String: Any]] = try files.map { file in
+      let data = try Data(contentsOf: file)
+      let name = file.lastPathComponent
+      FixtureProtocol.responses[raw + name] = data
+      return ["path": "app/" + name, "mode": "100644", "type": "blob", "size": data.count]
+    }
+    FixtureProtocol.responses[treeURL] = try JSONSerialization.data(withJSONObject: ["truncated": false, "tree": entries])
+    let tui = try await installer.prepare(source, staging: root)
+    let installedTUI = try PluginPackage(root: tui.install(in: plugins, bundledIDs: []))
+    check(installedTUI.manifest.id == "org.blink.tui-starter" && installedTUI.manifest.permissions.isEmpty)
+    for file in files {
+      check(try Data(contentsOf: installedTUI.asset(file.lastPathComponent)) == Data(contentsOf: file))
+    }
     print("PASS: \(count) offline GitHub installer checks (URL parsing, pinned snapshot, install, collisions, traversal, symlinks, limits, size integrity). Fixtures: \(root.path)")
   }
 }

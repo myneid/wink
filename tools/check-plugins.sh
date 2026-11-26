@@ -20,3 +20,6 @@ echo "Check binaries retained at $CHECK_DIR"
 
 swiftc -D WINK_TESTING Sources/PluginPackage.swift Sources/PluginInstaller.swift Sources/Plugins.swift Sources/SpotifyService.swift Tests/AppsWebViewChecks/main.swift -o "$CHECK_DIR/SpotifyChecks.app/Contents/MacOS/SpotifyChecks"
 "$CHECK_DIR/SpotifyChecks.app/Contents/MacOS/SpotifyChecks"
+
+swiftc -D WINK_TESTING Sources/PluginPackage.swift Sources/PluginInstaller.swift Sources/Plugins.swift Sources/SpotifyService.swift Tests/TUIWebViewChecks/main.swift -o "$CHECK_DIR/tui"
+"$CHECK_DIR/tui" "$PWD/examples/hterm-tui"
