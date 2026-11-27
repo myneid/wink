@@ -38,7 +38,7 @@ enum MySQLError: LocalizedError {
   }
 }
 
-/// A connected socket file descriptor (TCP, or one end of a socketpair).
+/// A connected socket file descriptor (TCP, Unix domain, or one end of a socketpair).
 final class SocketTransport: MySQLTransport {
   private let fd: Int32
   private let lock = NSLock()
@@ -92,6 +92,32 @@ final class SocketTransport: MySQLTransport {
       Darwin.close(s)
     }
     throw MySQLError.io("Can't connect to \(host):\(port): \(reason).")
+  }
+
+  convenience init(unixPath: String) throws {
+    var address = sockaddr_un()
+    let path = unixPath.utf8CString
+    guard path.count <= MemoryLayout.size(ofValue: address.sun_path) else {
+      throw MySQLError.io("MySQL socket path is too long.")
+    }
+    address.sun_family = sa_family_t(AF_UNIX)
+    let length = MemoryLayout<sockaddr_un>.size
+    address.sun_len = UInt8(length)
+    withUnsafeMutableBytes(of: &address.sun_path) { $0.copyBytes(from: path.map { UInt8(bitPattern: $0) }) }
+
+    let fd = socket(AF_UNIX, SOCK_STREAM, 0)
+    guard fd >= 0 else { throw MySQLError.io(String(cString: strerror(errno))) }
+    let result = withUnsafePointer(to: &address) {
+      $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
+        Darwin.connect(fd, $0, socklen_t(length))
+      }
+    }
+    guard result == 0 else {
+      let reason = String(cString: strerror(errno))
+      Darwin.close(fd)
+      throw MySQLError.io("Can't connect to \(unixPath): \(reason).")
+    }
+    self.init(fd: fd)
   }
 
   deinit { Darwin.close(fd) }
@@ -198,6 +224,7 @@ struct MySQLConnectOptions {
   var password: String
   var database: String
   var ssl: Bool
+  var localSocket = false
 }
 
 /// One MySQL session. Not thread-safe: use it from one queue, except close().
@@ -334,7 +361,8 @@ final class MySQLClient {
 
     var response = head
     response.nulString(options.user)
-    let auth = authResponse(plugin: plugin, password: options.password, scramble: scramble, tls: options.ssl)
+    let auth = authResponse(plugin: plugin, password: options.password, scramble: scramble,
+                            tls: options.ssl, localSocket: options.localSocket)
     if caps & Self.pluginAuthLenenc != 0 { response.lenencBytes(auth) }
     else { response.byte(UInt8(auth.count)); response.bytes(auth) }
     if caps & Self.connectWithDB != 0 { response.nulString(options.database) }
@@ -343,7 +371,7 @@ final class MySQLClient {
     try finishAuth(plugin: plugin, scramble: scramble, options: options)
   }
 
-  private func authResponse(plugin: String, password: String, scramble: [UInt8], tls: Bool) -> [UInt8] {
+  private func authResponse(plugin: String, password: String, scramble: [UInt8], tls: Bool, localSocket: Bool) -> [UInt8] {
     if password.isEmpty { return [] }
     let pw = Array(password.utf8)
     switch plugin {
@@ -354,7 +382,7 @@ final class MySQLClient {
       let h1 = sha256(pw), h2 = sha256(sha256(h1) + scramble)
       return zip(h1, h2).map { $0 ^ $1 }
     case "sha256_password":
-      return tls ? pw + [0] : [1]          // 1 asks for the server's public key
+      return tls || localSocket ? pw + [0] : [1]          // 1 asks for the server's public key
     case "mysql_clear_password":
       return tls ? pw + [0] : []
     default:
@@ -382,13 +410,14 @@ final class MySQLClient {
         if plugin == "mysql_clear_password" && !tls {
           throw MySQLError.io("The server asked for the password in clear text; turn on SSL for this connection.")
         }
-        try writePacket(authResponse(plugin: plugin, password: options.password, scramble: scramble, tls: tls))
+        try writePacket(authResponse(plugin: plugin, password: options.password, scramble: scramble,
+                                     tls: tls, localSocket: options.localSocket))
       case 0x01:                     // more data
         p.skip(1)
         let data = Array(p.rest())
         if plugin == "caching_sha2_password" && data == [3] { continue }   // fast auth ok; OK follows
         if plugin == "caching_sha2_password" && data == [4] {               // full auth
-          if tls { try writePacket(Array(options.password.utf8) + [0]) }
+          if tls || options.localSocket { try writePacket(Array(options.password.utf8) + [0]) }
           else { try writePacket([2]) }                                     // request public key
           continue
         }

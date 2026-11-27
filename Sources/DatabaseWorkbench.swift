@@ -23,7 +23,8 @@ import AppKit
     self.appName = appName
     let environment = DatabaseHostEnvironment(
       storeURL: Self.storeURL, keychainService: "Wink Database", sshHosts: { Self.sshHosts() },
-      openTunnel: { destination in try await SSHTunnel.open(destination: destination, config: Self.sshConfigPath()) })
+      openTunnel: { destination in try await SSHTunnel.open(destination: destination, config: Self.sshConfigPath()) },
+      localSocketFallback: "/tmp/mysql.sock")
     bridge = DatabaseBridge(appName: appName, owner: owner, environment: environment, ui: self)
   }
 

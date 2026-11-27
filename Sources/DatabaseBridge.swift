@@ -37,6 +37,7 @@ struct DatabaseHostEnvironment {
   var sshHosts: () -> [DatabaseSSHHost]
   /// Opens an SSH connection to an alias or user@host[:port].
   var openTunnel: (_ destination: String) async throws -> DatabaseTunnel
+  var localSocketFallback: String? = nil
 }
 
 struct DatabaseFailure: LocalizedError {
@@ -269,7 +270,8 @@ struct DatabaseFailure: LocalizedError {
       tunnel = nil
       tunnel = try await environment.openTunnel(c.ssh)
     }
-    let endpoint = DatabaseSession.Endpoint(connection: c, password: password, tunnel: tunnel)
+    let endpoint = DatabaseSession.Endpoint(connection: c, password: password, tunnel: tunnel,
+                                            localSocketFallback: environment.localSocketFallback)
     let info = try await session.connect(endpoint, database: database)
     guard !closed else { session.closeClient(); throw DatabaseFailure("This app tab has closed.") }
     currentDatabase = info.database
@@ -315,7 +317,25 @@ final class DatabaseSession: @unchecked Sendable {
     let password: String
     let tunnel: DatabaseTunnel?
 
-    func transport(timeout: TimeInterval = 15) throws -> MySQLTransport {
+    var localSocketFallback: String? = nil
+
+    func openTransport() throws -> (stream: MySQLTransport, socketPath: String?) {
+      do {
+        return (try transport(), nil)
+      } catch {
+        guard tunnel == nil, connection.ssh.isEmpty, connection.port == 3306,
+              ["localhost", "127.0.0.1", "::1"].contains(connection.host.lowercased()),
+              let path = localSocketFallback else { throw error }
+        do {
+          return (try SocketTransport(unixPath: path), path)
+        } catch let socketError {
+          throw DatabaseFailure("\(error.localizedDescription) Socket fallback: \(socketError.localizedDescription)")
+        }
+      }
+    }
+
+    func transport(socketPath: String? = nil, timeout: TimeInterval = 15) throws -> MySQLTransport {
+      if let socketPath { return try SocketTransport(unixPath: socketPath) }
       if let tunnel { return try tunnel.openStream(host: connection.host, port: connection.port) }
       return try SocketTransport(host: connection.host, port: connection.port, timeout: timeout)
     }
@@ -326,7 +346,7 @@ final class DatabaseSession: @unchecked Sendable {
   private let queue = DispatchQueue(label: "database.session")
   private let lock = NSLock()
   private var client: MySQLClient?
-  private var endpoint: Endpoint?
+  private var endpoint: (connection: Endpoint, socketPath: String?)?
   private var running = false
 
   var isConnected: Bool { lock.withLock { client != nil } }
@@ -347,11 +367,13 @@ final class DatabaseSession: @unchecked Sendable {
     try await onQueue { [self] in
       closeClient()
       let c = endpoint.connection
-      let client = try MySQLClient(transport: endpoint.transport(),
-                                   options: MySQLConnectOptions(host: c.host, user: c.user, password: endpoint.password, database: database, ssl: c.ssl))
+      let (stream, socketPath) = try endpoint.openTransport()
+      let client = try MySQLClient(transport: stream,
+                                   options: MySQLConnectOptions(host: c.host, user: c.user, password: endpoint.password, database: database, ssl: c.ssl,
+                                                               localSocket: socketPath != nil))
       if c.readOnly { _ = try client.query("SET SESSION TRANSACTION READ ONLY") }
       let current = try client.query("SELECT DATABASE()").rows.first?.first as? String ?? ""
-      lock.withLock { self.client = client; self.endpoint = endpoint }
+      lock.withLock { self.client = client; self.endpoint = (endpoint, socketPath) }
       return Info(version: client.serverVersion, thread: Int(client.connectionID), database: current)
     }
   }
@@ -436,9 +458,9 @@ final class DatabaseSession: @unchecked Sendable {
 
   /// KILL QUERY from a second connection. Called while the queue is busy.
   func killRunningQuery() async -> Bool {
-    guard let (endpoint, thread) = lock.withLock({ () -> (Endpoint, UInt32)? in
+    guard let (endpoint, socketPath, thread) = lock.withLock({ () -> (Endpoint, String?, UInt32)? in
       guard let endpoint, let client else { return nil }
-      return (endpoint, client.connectionID)
+      return (endpoint.connection, endpoint.socketPath, client.connectionID)
     }) else { return false }
     return await withCheckedContinuation { continuation in
       DispatchQueue.global().async {
@@ -448,8 +470,9 @@ final class DatabaseSession: @unchecked Sendable {
         defer { timer.cancel() }
         do {
           let c = endpoint.connection
-          killer = try MySQLClient(transport: endpoint.transport(timeout: 5),
-                                   options: MySQLConnectOptions(host: c.host, user: c.user, password: endpoint.password, database: "", ssl: c.ssl))
+          killer = try MySQLClient(transport: endpoint.transport(socketPath: socketPath, timeout: 5),
+                                   options: MySQLConnectOptions(host: c.host, user: c.user, password: endpoint.password, database: "", ssl: c.ssl,
+                                                               localSocket: socketPath != nil))
           _ = try killer!.query("KILL QUERY \(thread)")
           killer!.quit()
           continuation.resume(returning: true)
