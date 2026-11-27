@@ -141,7 +141,7 @@ final class PluginsMenuController: NSObject, NSMenuDelegate {
           let manifest = prepared.package.manifest
           let review = NSAlert()
           review.messageText = "Install \(manifest.name)?"
-          review.informativeText = "Version: \(manifest.version)\nID: \(manifest.id)\nSource: \(source.repositoryURL)\nCommit: \(prepared.commit)\nPermissions: \(manifest.permissions.isEmpty ? "none" : manifest.permissions.joined(separator: ", "))\n\nInstall only code from publishers you trust. Spotify permission is reserved for the bundled example; Database permission lets an app query only a connection you select in Wink. No app can access terminal sessions."
+          review.informativeText = "Version: \(manifest.version)\nID: \(manifest.id)\nSource: \(source.repositoryURL)\nCommit: \(prepared.commit)\nPermissions: \(manifest.permissions.isEmpty ? "none" : manifest.permissions.joined(separator: ", "))\n\nInstall only code from publishers you trust. Spotify permission is reserved for the bundled example; Database permission lets an app save MySQL connections (passwords stay in your Keychain), open SSH tunnels to your hosts for them, and read and change data on connections you open. No app can access terminal sessions."
           review.addButton(withTitle: "Install")
           review.addButton(withTitle: "Cancel")
           guard review.runModal() == .alertFirstButtonReturn else { return }
@@ -194,7 +194,7 @@ final class PluginWindowController: NSWindowController, NSWindowDelegate, WKNavi
     guard package.manifest.id == "org.blink.apps", let root = Bundle.main.resourceURL?.appendingPathComponent("Plugins/org.blink.apps") else { return false }
     return package.root == root.resolvingSymlinksInPath().standardizedFileURL
   }
-  @MainActor private lazy var database = DatabaseWorkbench(appName: package.manifest.name)
+  @MainActor private lazy var database = DatabaseWorkbench(appName: package.manifest.name, owner: package.manifest.id)
   private var databaseAllowed: Bool { package.manifest.permissions.contains("database") }
   private let webView: WKWebView
   private let content: WKUserContentController
@@ -324,7 +324,14 @@ final class PluginWindowController: NSWindowController, NSWindowDelegate, WKNavi
       host: Object.freeze({info: () => call('host.info')}),
       apps: Object.freeze({list: () => call('apps.list'), open: id => call('apps.open', {id}),
         check: id => call('apps.check', {id}), update: id => call('apps.update', {id}), install: () => call('apps.install')}),
-      database: Object.freeze({connect: () => call('database.connect'), query: sql => call('database.query', {sql}),
+      database: Object.freeze({connect: () => call('database.connect'),
+        connections: () => call('database.connections'), sshHosts: () => call('database.sshHosts'),
+        edit: id => call('database.edit', id ? {id} : {}), importURL: () => call('database.importURL'),
+        duplicate: id => call('database.duplicate', {id}), remove: id => call('database.remove', {id}),
+        copyURL: id => call('database.copyURL', {id}), open: id => call('database.open', {id}),
+        status: () => call('database.status'), disconnect: () => call('database.disconnect'),
+        query: (sql, options = {}) => call('database.query', {...options, sql}),
+        execute: statements => call('database.execute', {statements}),
         cancel: () => call('database.cancel')}),
       spotify: Object.freeze({status: () => call('spotify.status'), login: clientID => call('spotify.login', {clientID}),
         logout: () => call('spotify.logout'), streamingToken: () => call('spotify.streamingToken'), request: (verb, path, query = {}, body) => call('spotify.request', {verb, path, query, ...(body === undefined ? {} : {body})}),

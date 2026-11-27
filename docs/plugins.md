@@ -231,18 +231,57 @@ Apps → Manage Apps opens bundled `org.blink.apps`. Its keyboard-driven web UI 
 
 The Apps list also includes `repositoryURL`: the canonical GitHub repository for installed apps, the Spotify source repository for the bundled player, and the source folder in Wink for Plugin Playground. The portable UI renders an accessible **Open GitHub** link. Wink opens user-clicked, validated GitHub repository/tree links in the default browser rather than navigating the Apps tab. No link is shown for apps without known source metadata.
 
-## Database Workbench (Wink prototype)
+## Database Workbench and the `database` permission
 
 Choose **Apps → Install Database Workbench…**, or paste
 `https://github.com/myneid/wink-database` into **Install from GitHub…**.
-The Workbench is not bundled. It needs a Wink build with the `database`
-permission and does not run on Wink 0.9.2.
+The Workbench is not bundled. Nothing else is needed: Wink and Blink talk to
+MySQL and MariaDB with their own Swift client (`Sources/MySQLClient.swift`),
+which supports `caching_sha2_password` (over TLS or with the server's RSA
+key), `mysql_native_password` and TLS 1.2.
 
-After install, choose **Apps → Database Workbench → Choose connection…**.
-The native prompt grants the tab access to a local MySQL server or an
-existing SSH forward bound to `127.0.0.1`. Use PHP CLI with `pdo_mysql`
-(Homebrew or Herd) and a MySQL account granted `SELECT` only. Credentials
-never enter the WebView. The app can read query results until its tab
-closes. Choose a table to preview rows, or run SQL with **⌘Enter**.
-Results are capped at 200 rows. **Stop waiting** terminates the local
-helper; it is not a server-side kill command.
+The `database` capability is portable. `Sources/DatabaseURL.swift`,
+`Sources/MySQLClient.swift` and `Sources/DatabaseBridge.swift` are
+platform-neutral and shared verbatim with Blink's Apps host
+(`Blink/Database/`); each host only adds dialogs and SSH tunnels. After
+changing them, run `tools/sync-blink-database.sh path/to/blink`.
+
+An app with the `database` permission gets `blink.database`:
+
+| Call | Does |
+| --- | --- |
+| `connections()` | Connections this app saved: id, name, title, host, port, user, database, ssh, readOnly, ssl, environment, color, hasPassword, lastUsed. Never a password. |
+| `edit(id?)` | Native form to create or edit a connection (a URL field fills it in). Resolves to the saved connection or `null`. |
+| `importURL()` | Native prompt for a `mysql://`, `mariadb://`, `jdbc:mysql://`, `DATABASE_URL=…` or TablePlus `mysql+ssh://` URL (prefilled from the clipboard), then the form. |
+| `duplicate(id)`, `remove(id)`, `copyURL(id)` | Remove asks first; Copy URL asks whether to include the password and writes the clipboard natively. |
+| `open(id)` | Opens the connection for this tab: `{connection, version, database, thread}`. |
+| `query(sql, {params, maxRows, maxCell})` | One statement on the tab's session. Values are strings or `null`; long text is `{$t, n}`, non-UTF-8 bytes `{$b, n}` (base64 prefix). |
+| `execute([{sql, params}])` | Statements in one transaction, all or nothing: `{affected: [n…]}`. |
+| `cancel()`, `disconnect()`, `status()`, `sshHosts()` | Cancel sends `KILL QUERY` from a second connection, then drops the session if needed. Calls on one tab run one at a time, in order. |
+| `connect()` | v0.2 API: the form, then `open`. |
+
+Connections live in `~/.config/wink/databases.json` (0600), passwords in the
+login Keychain under “Wink Database”. In Blink: the app's Application
+Support `PortableApps/databases.json` and the Keychain under “Blink Database”. Each app only sees the connections it
+saved. A tab keeps one MySQL session, so `USE`, variables and temporary tables
+persist; if the session or tunnel drops, the next query reconnects to the same
+database and the reply carries `reconnected: true`.
+
+**SSH.** Set “Over SSH” to one of your Wink/Blink hosts (or `user@host:port`).
+Wink runs `ssh -F ~/.config/wink/ssh_config -N -D 127.0.0.1:<free port>` and
+connects through it, so Blink's hosts, keys, ProxyJump and your
+`~/.ssh/config` all apply. Blink opens direct-tcpip channels with its own SSH
+client, using your Blink keys and saved host passwords (ProxyJump and
+ProxyCommand hosts aren't supported there yet). Host is
+as seen from the SSH server, usually `127.0.0.1`. Tunnels use keys or your
+agent (`BatchMode=yes`); password and 2FA prompts are not supported. New host
+keys are accepted on first use. Tunnels close with the tab and when Wink quits.
+
+**Read-only** connections run `SET SESSION TRANSACTION READ ONLY` and refuse
+statements that lift it. For real protection, also use an account without
+write grants.
+
+Checks: `tools/check-plugins.sh` runs the URL parser checks always, and the
+bridge checks against a live server with
+`WINK_TEST_MYSQL=127.0.0.1:3306 WINK_TEST_SSH=localhost tools/check-plugins.sh`
+(user `root` without a password; load `Tests/fixtures/database-shop.sql` first).

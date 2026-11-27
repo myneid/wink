@@ -8,6 +8,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
 
   func applicationDidFinishLaunching(_ note: Notification) {
     BlinkConfig.shared.reload()
+    DatabaseWorkbench.sshHosts = {
+      HostCatalog.load().hosts.filter { !$0.hidden }.map {
+        DatabaseSSHHost(alias: $0.host.sshAlias, hostName: $0.host.hostName, user: $0.host.user, port: $0.host.port)
+      }
+    }
+    DatabaseWorkbench.sshConfigPath = {
+      try? BlinkConfig.writeLaunchConfig()
+      return BlinkConfig.launchConfURL.path
+    }
     NSApp.mainMenu = buildMainMenu()
     newWindow(nil)
     NSApp.activate(ignoringOtherApps: true)
@@ -17,6 +26,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSMenu
 
   func applicationWillTerminate(_ note: Notification) {
     Updater.shared.willTerminate()
+    DatabaseWorkbench.terminateAll()
   }
 
   func applicationShouldTerminateAfterLastWindowClosed(_ app: NSApplication) -> Bool { true }
