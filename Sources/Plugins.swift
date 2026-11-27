@@ -3,6 +3,7 @@ import WebKit
 
 final class PluginsMenuController: NSObject, NSMenuDelegate {
   let menu = NSMenu(title: "Apps")
+  private static let databaseRepository = "https://github.com/myneid/wink-database"
   private var installing = false
   private var updates: [String: PreparedPlugin] = [:]
   private var windows: [PluginWindowController] = []
@@ -39,6 +40,11 @@ final class PluginsMenuController: NSObject, NSMenuDelegate {
     menu.addItem(.separator())
     let install = menu.addItem(withTitle: installing ? "Downloading App…" : "Install from GitHub…", action: installing ? nil : #selector(installFromGitHub), keyEquivalent: "")
     install.target = self
+    if packages["org.blink.database"] == nil {
+      let database = menu.addItem(withTitle: "Install Database Workbench…",
+        action: installing ? nil : #selector(installDatabaseWorkbench), keyEquivalent: "")
+      database.target = self
+    }
     let folder = menu.addItem(withTitle: "Open Apps Folder…", action: #selector(openFolder), keyEquivalent: "")
     folder.target = self
   }
@@ -105,12 +111,19 @@ final class PluginsMenuController: NSObject, NSMenuDelegate {
     throw PluginPackage.Failure.invalid("Unsupported app operation; check for updates first")
   }
 
-  @objc private func installFromGitHub() {
+  @objc private func installDatabaseWorkbench() {
+    promptGitHubInstall(prefill: Self.databaseRepository)
+  }
+
+  @objc private func installFromGitHub() { promptGitHubInstall(prefill: "") }
+
+  private func promptGitHubInstall(prefill: String) {
     guard !installing else { return }
     let prompt = NSAlert()
     prompt.messageText = "Install App from GitHub"
     prompt.informativeText = "Paste a public repository or plugin-folder link. Wink will contact GitHub and download a pinned snapshot for review. No build scripts are run."
     let input = NSTextField(frame: NSRect(x: 0, y: 0, width: 420, height: 24))
+    input.stringValue = prefill
     input.placeholderString = "https://github.com/owner/plugin"
     prompt.accessoryView = input
     prompt.addButton(withTitle: "Download for Review")
@@ -128,7 +141,7 @@ final class PluginsMenuController: NSObject, NSMenuDelegate {
           let manifest = prepared.package.manifest
           let review = NSAlert()
           review.messageText = "Install \(manifest.name)?"
-          review.informativeText = "Version: \(manifest.version)\nID: \(manifest.id)\nSource: \(source.repositoryURL)\nCommit: \(prepared.commit)\nPermissions: \(manifest.permissions.isEmpty ? "none" : manifest.permissions.joined(separator: ", "))\n\nInstall only code from publishers you trust. Spotify permission is reserved for the bundled example; other apps stay offline. No app can access terminal sessions."
+          review.informativeText = "Version: \(manifest.version)\nID: \(manifest.id)\nSource: \(source.repositoryURL)\nCommit: \(prepared.commit)\nPermissions: \(manifest.permissions.isEmpty ? "none" : manifest.permissions.joined(separator: ", "))\n\nInstall only code from publishers you trust. Spotify permission is reserved for the bundled example; Database permission lets an app query only a connection you select in Wink. No app can access terminal sessions."
           review.addButton(withTitle: "Install")
           review.addButton(withTitle: "Cancel")
           guard review.runModal() == .alertFirstButtonReturn else { return }
@@ -181,6 +194,8 @@ final class PluginWindowController: NSWindowController, NSWindowDelegate, WKNavi
     guard package.manifest.id == "org.blink.apps", let root = Bundle.main.resourceURL?.appendingPathComponent("Plugins/org.blink.apps") else { return false }
     return package.root == root.resolvingSymlinksInPath().standardizedFileURL
   }
+  @MainActor private lazy var database = DatabaseWorkbench(appName: package.manifest.name)
+  private var databaseAllowed: Bool { package.manifest.permissions.contains("database") }
   private let webView: WKWebView
   private let content: WKUserContentController
   private var spotifyAllowed: Bool {
@@ -221,6 +236,7 @@ final class PluginWindowController: NSWindowController, NSWindowDelegate, WKNavi
     content.removeScriptMessageHandler(forName: "blink", contentWorld: .page)
     webView.stopLoading()
     if spotifyAllowed { SpotifyService.shared.cancelLogin() }
+    if databaseAllowed { database.close() }
     onClose?()
   }
 
@@ -260,6 +276,14 @@ final class PluginWindowController: NSWindowController, NSWindowDelegate, WKNavi
       }
       return
     }
+    if method.hasPrefix("database.") {
+      guard databaseAllowed else { replyHandler(nil, "App has not declared the database permission"); return }
+      Task { @MainActor in
+        do { replyHandler(try await database.call(method, request), nil) }
+        catch { replyHandler(nil, error.localizedDescription) }
+      }
+      return
+    }
     if method.hasPrefix("spotify.") {
       guard spotifyAllowed else { replyHandler(nil, "Spotify requires the bundled Spotify plugin"); return }
       Task { @MainActor in
@@ -270,7 +294,7 @@ final class PluginWindowController: NSWindowController, NSWindowDelegate, WKNavi
     }
     if method == "host.info" {
       replyHandler(["apiVersion": 1, "host": "wink", "platform": "macos", "pluginID": package.manifest.id,
-                    "capabilities": ["host.info"] + (spotifyAllowed ? ["spotify"] : []) + (package.manifest.permissions.contains("storage") ? ["storage.get", "storage.set"] : [])], nil)
+                    "capabilities": ["host.info"] + (databaseAllowed ? ["database"] : []) + (spotifyAllowed ? ["spotify"] : []) + (package.manifest.permissions.contains("storage") ? ["storage.get", "storage.set"] : [])], nil)
       return
     }
     guard package.manifest.permissions.contains("storage"),
@@ -300,6 +324,8 @@ final class PluginWindowController: NSWindowController, NSWindowDelegate, WKNavi
       host: Object.freeze({info: () => call('host.info')}),
       apps: Object.freeze({list: () => call('apps.list'), open: id => call('apps.open', {id}),
         check: id => call('apps.check', {id}), update: id => call('apps.update', {id}), install: () => call('apps.install')}),
+      database: Object.freeze({connect: () => call('database.connect'), query: sql => call('database.query', {sql}),
+        cancel: () => call('database.cancel')}),
       spotify: Object.freeze({status: () => call('spotify.status'), login: clientID => call('spotify.login', {clientID}),
         logout: () => call('spotify.logout'), streamingToken: () => call('spotify.streamingToken'), request: (verb, path, query = {}, body) => call('spotify.request', {verb, path, query, ...(body === undefined ? {} : {body})}),
         artwork: url => call('spotify.artwork', {url})}),

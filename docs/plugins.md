@@ -230,3 +230,19 @@ Apps → Manage Apps opens bundled `org.blink.apps`. Its keyboard-driven web UI 
 `list` returns id, name, version, source, updatable, updateVersion and permissions. `check` contacts GitHub on user action and stages a commit-pinned candidate. `update` requires source/version/permission review and retains a previous-package backup. The old tab closes; stored data remains. Bundled plugins update with Wink. New receipts preserve refs; legacy receipts follow the default branch. Commit-pinned installs stay pinned. No background auto-installation or iOS implementation.
 
 The Apps list also includes `repositoryURL`: the canonical GitHub repository for installed apps, the Spotify source repository for the bundled player, and the source folder in Wink for Plugin Playground. The portable UI renders an accessible **Open GitHub** link. Wink opens user-clicked, validated GitHub repository/tree links in the default browser rather than navigating the Apps tab. No link is shown for apps without known source metadata.
+
+## Database Workbench (Wink prototype)
+
+Choose **Apps → Install Database Workbench…**, or paste
+`https://github.com/myneid/wink-database` into **Install from GitHub…**.
+The Workbench is not bundled. It needs a Wink build with the `database`
+permission and does not run on Wink 0.9.2.
+
+After install, choose **Apps → Database Workbench → Choose connection…**.
+The native prompt grants the tab access to a local MySQL server or an
+existing SSH forward bound to `127.0.0.1`. Use PHP CLI with `pdo_mysql`
+(Homebrew or Herd) and a MySQL account granted `SELECT` only. Credentials
+never enter the WebView. The app can read query results until its tab
+closes. Choose a table to preview rows, or run SQL with **⌘Enter**.
+Results are capped at 200 rows. **Stop waiting** terminates the local
+helper; it is not a server-side kill command.
