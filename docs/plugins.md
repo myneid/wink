@@ -110,6 +110,14 @@ limit: 64 KiB; individual asset limit: 8 MiB. Use separate script/style files:
 inline scripts, inline styles, eval and remote assets are intentionally blocked.
 Asset paths are case sensitive; use relative URLs, not host-specific paths.
 
+Optional `"commands": ["dbw"]` (Blink): up to four shell commands, each 2–32
+lowercase letters, digits or dashes, that open the app full screen in a new
+Blink tab. A name Blink already has, or one another installed app claimed
+first, is never taken; Blink shows conflicts when reviewing an install and
+refuses it. Everything after the command is passed to the app as
+`blink.host.info().launch` = `{command, args}`. Blink also has `apps` (list
+apps) and `apps open <id|name|command> [args…]`. Wink ignores the field.
+
 ## JavaScript contract
 
 `window.blink` is available before the entry document runs. Methods return
